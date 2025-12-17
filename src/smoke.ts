@@ -34,23 +34,46 @@ async function main() {
     );
   }
 
-  const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'godot-mcp-omni-smoke-'));
-  await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
-
-  const projectGodot = [
-    '; Engine configuration file.',
-    '; It\'s best edited using the editor, not directly.',
-    'config_version=5',
-    '',
-    '[application]',
-    'config/name="godot-mcp-omni-smoke"',
-    '',
-  ].join('\n');
-  await fs.writeFile(path.join(projectPath, 'project.godot'), projectGodot, 'utf8');
-
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const serverEntry = path.join(__dirname, 'index.js');
+
+  const repoRoot = path.resolve(__dirname, '..');
+  const explicitProjectPath = process.env.SMOKE_PROJECT_PATH?.trim();
+  const defaultSampleProjectPath = path.join(repoRoot, 'sample_project');
+
+  let projectPath: string;
+  let shouldCleanupProject = false;
+
+  if (explicitProjectPath) {
+    projectPath = path.resolve(explicitProjectPath);
+  } else {
+    try {
+      await fs.access(path.join(defaultSampleProjectPath, 'project.godot'));
+      projectPath = defaultSampleProjectPath;
+    } catch {
+      projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'godot-mcp-omni-smoke-'));
+      shouldCleanupProject = true;
+      await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
+
+      const projectGodot = [
+        '; Engine configuration file.',
+        "; It's best edited using the editor, not directly.",
+        'config_version=5',
+        '',
+        '[application]',
+        'config/name="godot-mcp-omni-smoke"',
+        '',
+      ].join('\n');
+      await fs.writeFile(path.join(projectPath, 'project.godot'), projectGodot, 'utf8');
+    }
+  }
+
+  try {
+    await fs.access(path.join(projectPath, 'project.godot'));
+  } catch {
+    throw new Error(`Not a valid Godot project (missing project.godot): ${projectPath}`);
+  }
 
   const server = spawn(process.execPath, [serverEntry], {
     env: { ...process.env, GODOT_PATH: godotPath, DEBUG: debug ? 'true' : 'false' },
@@ -69,7 +92,7 @@ async function main() {
       // ignore
     }
     try {
-      await fs.rm(projectPath, { recursive: true, force: true });
+      if (shouldCleanupProject) await fs.rm(projectPath, { recursive: true, force: true });
     } catch {
       // ignore
     }
@@ -141,7 +164,11 @@ async function main() {
     } catch {
       throw new Error(`Tool ${name} returned non-JSON text: ${toolText}`);
     }
-    if (!parsed?.ok) throw new Error(`Tool ${name} failed: ${parsed?.summary ?? 'Unknown error'}`);
+    if (!parsed?.ok) {
+      const details = parsed?.details ? `\nDetails: ${JSON.stringify(parsed.details, null, 2)}` : '';
+      const logs = parsed?.logs ? `\nLogs: ${JSON.stringify(parsed.logs, null, 2)}` : '';
+      throw new Error(`Tool ${name} failed: ${parsed?.summary ?? 'Unknown error'}${details}${logs}`);
+    }
     return parsed;
   };
 
@@ -182,4 +209,3 @@ main().catch((error: unknown) => {
   console.error(message);
   process.exit(1);
 });
-

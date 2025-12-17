@@ -35,7 +35,7 @@ func _init():
 			1
 		)
 
-	var params := json.get_data()
+	var params = json.get_data()
 	if typeof(params) != TYPE_DICTIONARY:
 		_emit_and_quit(_err("Params must be a JSON object", { "params_json": params_json }), 1)
 
@@ -176,12 +176,11 @@ func create_scene(params: Dictionary) -> Dictionary:
 	if params.has("root_node_type"):
 		root_node_type = String(params.root_node_type)
 
-	var root := _instantiate_class(root_node_type)
+	var root = _instantiate_class(root_node_type)
 	if root == null or not (root is Node):
 		return _err("Failed to instantiate root node", { "root_node_type": root_node_type })
 
 	(root as Node).name = "root"
-	(root as Node).owner = root
 
 	var packed := PackedScene.new()
 	var pack_err := packed.pack(root)
@@ -222,7 +221,7 @@ func add_node(params: Dictionary) -> Dictionary:
 
 	var node_type := String(params.node_type)
 	var node_name := String(params.node_name)
-	var new_node := _instantiate_class(node_type)
+	var new_node = _instantiate_class(node_type)
 	if new_node == null or not (new_node is Node):
 		return _err("Failed to instantiate node", { "node_type": node_type })
 
@@ -450,15 +449,15 @@ func create_script(params: Dictionary) -> Dictionary:
 	var script_path := _to_res_path(String(params.script_path))
 	var template := String(params.get("template", "minimal"))
 	var extends_name := String(params.get("extends", "Node"))
-	var class_name := String(params.get("class_name", ""))
+	var global_class_name := String(params.get("class_name", ""))
 
 	var lines: Array[String] = []
 	if template == "tool":
 		lines.append("@tool")
 	lines.append("extends " + extends_name)
 	lines.append("")
-	if not class_name.is_empty():
-		lines.append("class_name " + class_name)
+	if not global_class_name.is_empty():
+		lines.append("class_name " + global_class_name)
 		lines.append("")
 	lines.append("func _ready() -> void:")
 	lines.append("\tpass")
@@ -517,7 +516,7 @@ func create_resource(params: Dictionary) -> Dictionary:
 	var resource_path := _to_res_path(String(params.resource_path))
 	var type_name := String(params.type)
 
-	var res := _instantiate_class(type_name)
+	var res = _instantiate_class(type_name)
 	if res == null or not (res is Resource):
 		return _err("Failed to instantiate Resource", { "type": type_name })
 

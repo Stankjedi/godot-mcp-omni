@@ -5,6 +5,10 @@ node_modules/
 build/
 dist/
 
+# Local tooling / scratch
+.tmp/
+.tools/
+
 # Logs
 *.log
 npm-debug.log*
