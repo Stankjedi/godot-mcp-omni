@@ -14,6 +14,7 @@
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "smoke": "npm run build && node build/smoke.js",
+    "verify:safety": "npm run build && node build/verify_safety.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {

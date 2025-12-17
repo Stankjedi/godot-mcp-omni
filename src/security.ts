@@ -1,11 +1,64 @@
-import { appendFileSync, mkdirSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs';
 import path from 'path';
 
 export interface AuditEntry {
   ts: string;
   tool: string;
-  request: unknown;
-  response: unknown;
+  args: unknown;
+  ok: boolean;
+  summary: string;
+  details?: unknown;
+  error?: unknown;
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const n = Number.parseInt(value, 10);
+  if (Number.isNaN(n) || n <= 0) return fallback;
+  return n;
+}
+
+function rotateAuditLogIfNeeded(auditPath: string): void {
+  const maxBytes = parsePositiveInt(process.env.GODOT_MCP_AUDIT_MAX_BYTES, 5 * 1024 * 1024);
+  const backups = parsePositiveInt(process.env.GODOT_MCP_AUDIT_BACKUPS, 3);
+  if (backups <= 0) return;
+
+  let size = 0;
+  try {
+    size = statSync(auditPath).size;
+  } catch {
+    return;
+  }
+  if (size < maxBytes) return;
+
+  // Rotate: audit.log -> audit.log.1 -> audit.log.2 ...
+  for (let i = backups - 1; i >= 1; i -= 1) {
+    const from = `${auditPath}.${i}`;
+    const to = `${auditPath}.${i + 1}`;
+    if (!existsSync(from)) continue;
+    try {
+      if (existsSync(to)) unlinkSync(to);
+    } catch {
+      // ignore
+    }
+    try {
+      renameSync(from, to);
+    } catch {
+      // ignore
+    }
+  }
+
+  const first = `${auditPath}.1`;
+  try {
+    if (existsSync(first)) unlinkSync(first);
+  } catch {
+    // ignore
+  }
+  try {
+    renameSync(auditPath, first);
+  } catch {
+    // ignore
+  }
 }
 
 export function isDangerousOp(name: string): boolean {
@@ -80,11 +133,82 @@ export function resolveInsideProject(projectPath: string, userPath: string): str
   return resolvedCandidate;
 }
 
+function getStringParam(params: Record<string, unknown>, key: string): string | undefined {
+  const v = params[key];
+  return typeof v === 'string' ? v : undefined;
+}
+
+function getNestedStringParam(params: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = getStringParam(params, k);
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return undefined;
+}
+
+function getTargetInfo(params: Record<string, unknown>): { targetType?: string; targetId?: string; method?: string } {
+  return {
+    targetType: getNestedStringParam(params, ['target_type', 'targetType']),
+    targetId: getNestedStringParam(params, ['target_id', 'targetId']),
+    method: getNestedStringParam(params, ['method']),
+  };
+}
+
+function isDangerousRpcTarget(targetType: string | undefined, targetId: string | undefined): boolean {
+  if (!targetType || !targetId) return false;
+  if (targetType !== 'singleton') return false;
+  const id = targetId.toLowerCase();
+  return id === 'os' || id === 'projectsettings' || id === 'fileaccess';
+}
+
+export function assertEditorRpcAllowed(method: string, params: Record<string, unknown>, projectPath: string): void {
+  if (!projectPath) throw new Error('projectPath is required');
+  const m = method.trim();
+
+  // Path allowlist for common editor RPCs.
+  if (m === 'open_scene' || m === 'save_scene') {
+    const p = getStringParam(params, 'path');
+    if (typeof p === 'string' && p.length > 0) resolveInsideProject(projectPath, p);
+  }
+
+  if (m === 'filesystem.scan') {
+    // no path args
+    return;
+  }
+
+  if (m === 'filesystem.reimport_files') {
+    const files = params.files ?? params.paths ?? params.reimport_files ?? params.reimportFiles;
+    if (Array.isArray(files)) {
+      for (const f of files) {
+        if (typeof f !== 'string') continue;
+        resolveInsideProject(projectPath, f);
+      }
+    }
+    return;
+  }
+
+  // Generic RPC safety gates (call/set/get).
+  if (m === 'call' || m === 'set' || m === 'get') {
+    const { targetType, targetId, method: innerMethod } = getTargetInfo(params);
+
+    if (isDangerousRpcTarget(targetType, targetId)) {
+      // By default, block OS/ProjectSettings/FileAccess access; allow only when explicitly enabled.
+      if (process.env.ALLOW_DANGEROUS_OPS !== 'true') {
+        throw new Error(`Dangerous RPC blocked (${String(targetId)}.${String(innerMethod ?? m)}). Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.`);
+      }
+    }
+
+    // If the caller tries to pass any obvious path args, enforce allowlist.
+    const pathArg = getNestedStringParam(params, ['path', 'file_path', 'filePath', 'resource_path', 'resourcePath', 'scene_path', 'scenePath']);
+    if (pathArg) resolveInsideProject(projectPath, pathArg);
+  }
+}
+
 export function appendAuditLog(projectPath: string, entry: AuditEntry): void {
   const auditDir = path.join(projectPath, '.godot_mcp');
   mkdirSync(auditDir, { recursive: true });
 
   const auditPath = path.join(auditDir, 'audit.log');
+  rotateAuditLogIfNeeded(auditPath);
   appendFileSync(auditPath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8' });
 }
-

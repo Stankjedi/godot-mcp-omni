@@ -18,6 +18,7 @@ import { EditorBridgeClient } from './editor_bridge_client.js';
 import {
   appendAuditLog,
   assertDangerousOpsAllowed,
+  assertEditorRpcAllowed,
   redactSecrets,
   resolveInsideProject,
 } from './security.js';
@@ -36,6 +37,7 @@ interface GodotProcess {
   process: any;
   output: string[];
   errors: string[];
+  projectPath?: string;
 }
 
 export interface GodotMcpOmniServerConfig {
@@ -572,13 +574,25 @@ export class GodotMcpOmniServer {
       }
 
       const maybeProjectPath = (args as any)?.projectPath;
-      if (typeof maybeProjectPath === 'string' && maybeProjectPath.length > 0) {
+      const auditProjectPath =
+        typeof maybeProjectPath === 'string' && maybeProjectPath.length > 0
+          ? maybeProjectPath
+          : tool === 'godot_rpc' || tool === 'godot_inspect'
+          ? this.editorProjectPath
+          : tool === 'get_debug_output' || tool === 'stop_project'
+          ? this.activeProcess?.projectPath ?? null
+          : null;
+
+      if (typeof auditProjectPath === 'string' && auditProjectPath.length > 0) {
         try {
-          appendAuditLog(maybeProjectPath, {
+          appendAuditLog(auditProjectPath, {
             ts: new Date().toISOString(),
             tool,
-            request: redactSecrets(args),
-            response: redactSecrets(result),
+            args: redactSecrets(args),
+            ok: Boolean(result.ok),
+            summary: String(result.summary ?? ''),
+            details: redactSecrets(result.details),
+            error: redactSecrets((result.details as any)?.error),
           });
         } catch (error) {
           this.logDebug(`Audit log failed: ${String(error)}`);
@@ -697,7 +711,7 @@ export class GodotMcpOmniServer {
         if (this.activeProcess && this.activeProcess.process === proc) this.activeProcess = null;
       });
 
-      this.activeProcess = { process: proc, output, errors };
+      this.activeProcess = { process: proc, output, errors, projectPath: args.projectPath };
       return { ok: true, summary: 'Godot project started (debug mode)', details: { projectPath: args.projectPath } };
     } catch (error) {
       return {
@@ -1026,10 +1040,11 @@ export class GodotMcpOmniServer {
     }
 
     try {
-      const resp = await this.editorClient.request(method, params);
+      assertEditorRpcAllowed(method, params, this.editorProjectPath);
+      const resp = await this.editorClient.request(method, params);       
       return {
         ok: resp.ok,
-        summary: resp.ok ? `RPC ok: ${method}` : `RPC failed: ${method}`,
+        summary: resp.ok ? `RPC ok: ${method}` : `RPC failed: ${method}`,  
         details: resp.ok ? { result: resp.result } : { error: resp.error },
       };
     } catch (error) {
@@ -1046,10 +1061,7 @@ export class GodotMcpOmniServer {
     let method: string | undefined;
     let params: Record<string, unknown> = {};
 
-    if (typeof query?.method === 'string') {
-      method = query.method;
-      params = (query?.params && typeof query.params === 'object' ? query.params : {}) as Record<string, unknown>;
-    } else if (typeof query?.class_name === 'string' || typeof query?.className === 'string') {
+    if (typeof query?.class_name === 'string' || typeof query?.className === 'string') {
       method = 'inspect_class';
       params = { class_name: (query.class_name ?? query.className) as string };
     } else if (typeof query?.node_path === 'string' || typeof query?.nodePath === 'string') {
@@ -1061,7 +1073,7 @@ export class GodotMcpOmniServer {
       return {
         ok: false,
         summary: 'Invalid query_json',
-        details: { suggestions: ['Provide {class_name:\"Node2D\"} or {node_path:\"/root\"} or {method:\"inspect_class\", params:{...}}'] },
+        details: { suggestions: ['Provide {class_name:\"Node2D\"} or {node_path:\"/root\"}'] },
       };
     }
 
