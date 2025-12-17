@@ -176,24 +176,89 @@ async function main() {
     const listResp = await send('tools/list', {});
     if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
 
+    const smokeScenePath = '.godot_mcp/smoke/Smoke.tscn';
+    const receiverScriptPath = '.godot_mcp/smoke/Receiver.gd';
+
     await callTool('create_scene', {
       projectPath,
-      scenePath: 'scenes/Smoke.tscn',
+      scenePath: smokeScenePath,
       rootNodeType: 'Node2D',
     });
 
     await callTool('add_node', {
       projectPath,
-      scenePath: 'scenes/Smoke.tscn',
+      scenePath: smokeScenePath,
       parentNodePath: 'root',
       nodeType: 'Node',
-      nodeName: 'TestNode',
+      nodeName: 'Emitter',
+      properties: {},
+    });
+
+    await callTool('add_node', {
+      projectPath,
+      scenePath: smokeScenePath,
+      parentNodePath: 'root',
+      nodeType: 'Node',
+      nodeName: 'Receiver',
       properties: {},
     });
 
     await callTool('save_scene', {
       projectPath,
-      scenePath: 'scenes/Smoke.tscn',
+      scenePath: smokeScenePath,
+    });
+
+    await callTool('godot_headless_op', {
+      projectPath,
+      operation: 'create_script',
+      params: {
+        scriptPath: receiverScriptPath,
+        template: 'minimal',
+        extends: 'Node',
+      },
+    });
+
+    await callTool('godot_headless_op', {
+      projectPath,
+      operation: 'attach_script',
+      params: {
+        scenePath: smokeScenePath,
+        nodePath: 'root/Receiver',
+        scriptPath: receiverScriptPath,
+      },
+    });
+
+    await callTool('godot_headless_op', {
+      projectPath,
+      operation: 'connect_signal',
+      params: {
+        scenePath: smokeScenePath,
+        fromNodePath: 'root/Emitter',
+        signal: 'ready',
+        toNodePath: 'root/Receiver',
+        method: '_ready',
+      },
+    });
+
+    const readResp = await callTool('godot_headless_op', {
+      projectPath,
+      operation: 'read_text_file',
+      params: {
+        path: smokeScenePath,
+      },
+    });
+
+    const sceneText = String(readResp?.details?.content ?? '');
+    if (!sceneText.includes('signal="ready"') || !sceneText.includes('method="_ready"')) {
+      throw new Error(`connect_signal did not persist to scene file: ${smokeScenePath}`);
+    }
+
+    await callTool('godot_headless_op', {
+      projectPath,
+      operation: 'validate_scene',
+      params: {
+        scenePath: smokeScenePath,
+      },
     });
 
     await callTool('get_project_info', { projectPath });

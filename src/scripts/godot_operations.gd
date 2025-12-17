@@ -390,7 +390,7 @@ func connect_signal(params: Dictionary) -> Dictionary:
 	if from_node.is_connected(signal_name, callable):
 		return _ok("Signal already connected", { "scene_path": scene_path })
 
-	var err := from_node.connect(signal_name, callable)
+	var err := from_node.connect(signal_name, callable, Object.CONNECT_PERSIST)
 	if err != OK:
 		return _err("Failed to connect signal", { "error": err, "signal": String(params.signal) })
 
