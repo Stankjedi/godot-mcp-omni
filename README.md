@@ -1,5 +1,10 @@
 
-# Godot MCP
+# godot-mcp-omni
+
+Fork of `Coding-Solo/godot-mcp`, extended into an “omni” MCP:
+
+- Headless resource/scene ops (CI-friendly)
+- In-editor ops via `addons/godot_mcp_bridge/` (TCP JSON-RPC)
 
 [![Github-sponsors](https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#EA4AAA)](https://github.com/sponsors/Coding-Solo)
 

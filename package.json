@@ -1,10 +1,10 @@
 {
-  "name": "godot-mcp",
+  "name": "godot-mcp-omni",
   "version": "0.1.0",
-  "description": "MCP server for interfacing with Godot game engine. Provides tools for launching the editor, running projects, and capturing debug output.",
+  "description": "Omni MCP server for Godot: headless operations + in-editor bridge.",
   "type": "module",
   "bin": {
-    "godot-mcp": "./build/index.js"
+    "godot-mcp-omni": "./build/index.js"
   },
   "files": [
     "build"
@@ -13,6 +13,7 @@
     "build": "tsc && node scripts/build.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
+    "smoke": "npm run build && node build/smoke.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
