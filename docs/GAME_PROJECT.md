@@ -14,3 +14,9 @@ $godot="C:\\path\\to\\Godot_v4.x_win64_console.exe"
 & $godot --path ..\\game
 ```
 
+Sync the editor bridge addon into the game project:
+
+```powershell
+cd .\\godot-mcp-omni
+npm run sync:addon -- --project ..\\game
+```
