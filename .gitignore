@@ -9,6 +9,9 @@ dist/
 .tmp/
 .tools/
 
+# Godot editor metadata
+.godot/
+
 # Logs
 *.log
 npm-debug.log*

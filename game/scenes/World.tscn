@@ -1,0 +1,41 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/ui/HUD.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/world.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/actor.gd" id="3"]
+
+[sub_resource type="TileSet" id="TileSet_1"]
+
+[node name="World" type="Node2D"]
+script = ExtResource("2")
+
+[node name="Ground" type="TileMap" parent="."]
+unique_name_in_owner = true
+tile_set = SubResource("TileSet_1")
+
+[node name="Town" type="Node2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(180, 260)
+
+[node name="Marker" type="Polygon2D" parent="Town"]
+polygon = PackedVector2Array(0, -18, 28, 0, 0, 18, -28, 0)
+color = Color(0.2, 0.8, 0.3, 1)
+
+[node name="Forest" type="Node2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(520, 160)
+
+[node name="Marker" type="Polygon2D" parent="Forest"]
+polygon = PackedVector2Array(0, -18, 28, 0, 0, 18, -28, 0)
+color = Color(0.1, 0.5, 0.2, 1)
+
+[node name="Actor" type="Node2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(180, 260)
+script = ExtResource("3")
+
+[node name="Marker" type="Polygon2D" parent="Actor"]
+polygon = PackedVector2Array(0, -10, 10, 0, 0, 10, -10, 0)
+color = Color(0.9, 0.9, 0.2, 1)
+
+[node name="HUD" parent="." instance=ExtResource("1")]
