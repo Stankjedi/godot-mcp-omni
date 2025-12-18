@@ -573,7 +573,21 @@ export class GodotMcpOmniServer {
         result = await this.dispatchTool(tool, args);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        result = { ok: false, summary: message, details: { tool }, logs: [] };
+        const details: Record<string, unknown> = { tool };
+
+        if (error instanceof Error) {
+          const anyError = error as any;
+          const errorDetails: Record<string, unknown> = { name: error.name, message };
+          if (anyError?.code !== undefined) errorDetails.code = anyError.code;
+          if (Array.isArray(anyError?.attemptedCandidates)) {
+            errorDetails.attemptedCandidates = anyError.attemptedCandidates;
+          }
+          details.error = errorDetails;
+        } else {
+          details.error = { message };
+        }
+
+        result = { ok: false, summary: message, details, logs: [] };
       }
 
       const maybeProjectPath = (args as any)?.projectPath;
