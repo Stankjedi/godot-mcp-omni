@@ -147,7 +147,23 @@ async function main() {
     const listResp = await send('tools/list', {});
     if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
 
-    // 1) Path allowlist: attempt to escape project root should be blocked.
+    // 0) Validation: missing required args should fail fast with a structured error.
+    const invalidArgsResp = await callTool('godot_headless_op', {
+      operation: 'write_text_file',
+      params: { path: 'res://scenes/invalid.txt', content: 'blocked' },
+    });
+    if (
+      invalidArgsResp?.ok !== false ||
+      typeof invalidArgsResp?.summary !== 'string' ||
+      !invalidArgsResp.summary.startsWith('Invalid arguments:') ||
+      invalidArgsResp?.details?.field !== 'projectPath'
+    ) {
+      throw new Error(
+        `Expected validation failure for missing projectPath. Got: ${JSON.stringify(invalidArgsResp, null, 2)}`
+      );
+    }
+
+    // 1) Path allowlist: attempt to escape project root should be blocked.     
     const outsideWrite = await callTool('godot_headless_op', {
       projectPath,
       operation: 'write_text_file',
@@ -185,4 +201,3 @@ main().catch((error: unknown) => {
   console.error(message);
   process.exit(1);
 });
-

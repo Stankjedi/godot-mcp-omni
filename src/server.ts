@@ -22,6 +22,16 @@ import {
   redactSecrets,
   resolveInsideProject,
 } from './security.js';
+import {
+  ValidationError,
+  asNonEmptyString,
+  asOptionalPositiveNumber,
+  asOptionalRecord,
+  asOptionalRecordOrJson,
+  asOptionalString,
+  asPositiveNumber,
+  asRecord,
+} from './validation.js';
 
 const DEBUG_MODE = process.env.DEBUG === 'true';
 const GODOT_DEBUG_MODE = true;
@@ -31,6 +41,16 @@ export interface ToolResponse {
   summary: string;
   details?: Record<string, unknown>;
   logs?: string[];
+}
+
+function invalidArgs(tool: string, error: unknown): ToolResponse | null {
+  if (!(error instanceof ValidationError)) return null;
+  return {
+    ok: false,
+    summary: `Invalid arguments: ${error.message}`,
+    details: { tool, field: error.field, receivedType: error.receivedType },
+    logs: [],
+  };
 }
 
 interface GodotProcess {
@@ -368,7 +388,11 @@ export class GodotMcpOmniServer {
             properties: {
               projectPath: { type: 'string', description: 'Path to the Godot project directory' },
               operation: { type: 'string', description: 'Operation name' },
-              params: { type: 'object', description: 'JSON parameters', default: {} },
+              params: {
+                description: 'JSON parameters (object) or a JSON string',
+                anyOf: [{ type: 'object' }, { type: 'string' }],
+                default: {},
+              },
             },
             required: ['projectPath', 'operation'],
           },
@@ -970,26 +994,57 @@ export class GodotMcpOmniServer {
   }
 
   private async handleGodotHeadlessOp(args: any): Promise<ToolResponse> {
-    if (!args.projectPath || !args.operation) {
-      return { ok: false, summary: 'projectPath and operation are required' };
+    let projectPath: string;
+    let operation: string;
+    let params: Record<string, unknown>;
+
+    try {
+      projectPath = asNonEmptyString(args.projectPath, 'projectPath');
+      operation = asNonEmptyString(args.operation, 'operation');
+      params = asOptionalRecordOrJson(args.params, 'params', {});
+    } catch (error) {
+      const invalid = invalidArgs('godot_headless_op', error);
+      if (invalid) return invalid;
+      throw error;
     }
 
-    const params = (args.params && typeof args.params === 'object' ? args.params : {}) as Record<string, unknown>;
-    return await this.runHeadlessOp(String(args.operation), params, args.projectPath);
+    return await this.runHeadlessOp(operation, params, projectPath);
   }
 
   private async handleGodotConnectEditor(args: any): Promise<ToolResponse> {
-    if (!args.projectPath) return { ok: false, summary: 'projectPath is required' };
+    let projectPath: string;
+    let customGodotPath: string | undefined;
+    let tokenFromArg: string | undefined;
+    let customHost: string | undefined;
+    let port: number | undefined;
+    let timeoutMs: number | undefined;
 
     try {
-      this.assertValidProject(args.projectPath);
+      projectPath = asNonEmptyString(args.projectPath, 'projectPath');
+      customGodotPath = asOptionalString(args.godotPath, 'godotPath');
+      tokenFromArg = asOptionalString(args.token, 'token');
+      customHost = asOptionalString(args.host, 'host');
+      port = asOptionalPositiveNumber(args.port, 'port');
+      timeoutMs = asOptionalPositiveNumber(args.timeoutMs, 'timeoutMs');
+      if (port !== undefined && !Number.isInteger(port)) {
+        throw new ValidationError('port', 'Invalid field \"port\": expected integer', 'number');
+      }
+    } catch (error) {
+      const invalid = invalidArgs('godot_connect_editor', error);
+      if (invalid) return invalid;
+      throw error;
+    }
 
-      const tokenFromArg = typeof args.token === 'string' && args.token.length > 0 ? args.token : undefined;
+    try {
+      this.assertValidProject(projectPath);
+
+      const trimmedTokenFromArg =
+        tokenFromArg && tokenFromArg.trim().length > 0 ? tokenFromArg.trim() : undefined;
       const tokenFromEnv = typeof process.env.GODOT_MCP_TOKEN === 'string' ? process.env.GODOT_MCP_TOKEN : undefined;
-      let token = tokenFromArg ?? tokenFromEnv;
+      let token = trimmedTokenFromArg ?? tokenFromEnv;
 
       if (!token) {
-        const tokenPath = path.join(args.projectPath, '.godot_mcp_token');
+        const tokenPath = path.join(projectPath, '.godot_mcp_token');
         if (existsSync(tokenPath)) token = readFileSync(tokenPath, 'utf8').trim();
       }
 
@@ -1003,8 +1058,9 @@ export class GodotMcpOmniServer {
         };
       }
 
-      const port = typeof args.port === 'number' ? args.port : 8765;
-      const host = typeof args.host === 'string' ? args.host : '127.0.0.1';
+      const resolvedPort = typeof port === 'number' ? port : 8765;
+      const resolvedHost =
+        customHost && customHost.trim().length > 0 ? customHost.trim() : '127.0.0.1';
 
       // Best-effort launch the editor; if it’s already running, connect will work.
       const godotPath = await this.ensureGodotPath(args.godotPath);       
@@ -1015,24 +1071,32 @@ export class GodotMcpOmniServer {
         env: {
           ...process.env,
           GODOT_MCP_TOKEN: token,
-          GODOT_MCP_PORT: String(port),
+          GODOT_MCP_PORT: String(resolvedPort),
         },
       }).unref();
 
       const client = new EditorBridgeClient();
-      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 30000;
-      const helloOk = await client.connect({ host, port, token, timeoutMs });
+      const resolvedTimeoutMs = typeof timeoutMs === 'number' ? timeoutMs : 30000;
+      const helloOk = await client.connect({
+        host: resolvedHost,
+        port: resolvedPort,
+        token,
+        timeoutMs: resolvedTimeoutMs,
+      });
 
       this.editorClient?.close();
       this.editorClient = client;
-      this.editorProjectPath = args.projectPath;
+      this.editorProjectPath = projectPath;
 
       return {
         ok: true,
         summary: 'Connected to editor bridge',
-        details: { host, port, capabilities: helloOk.capabilities ?? {} },
+        details: { host: resolvedHost, port: resolvedPort, capabilities: helloOk.capabilities ?? {} },
       };
     } catch (error) {
+      const invalid = invalidArgs('godot_connect_editor', error);
+      if (invalid) return invalid;
+
       return {
         ok: false,
         summary: `Failed to connect editor bridge: ${error instanceof Error ? error.message : String(error)}`,
@@ -1045,25 +1109,27 @@ export class GodotMcpOmniServer {
       return { ok: false, summary: 'Not connected to editor bridge', details: { suggestions: ['Call godot_connect_editor first'] } };
     }
 
-    const requestJson = parseJsonish(args.request_json) as any;
-    const method = typeof requestJson?.method === 'string' ? requestJson.method : undefined;
-    const params = (requestJson?.params && typeof requestJson.params === 'object' ? requestJson.params : {}) as Record<string, unknown>;
+    let method: string;
+    let params: Record<string, unknown>;
+    let timeoutMs: number;
 
-    if (!method) {
-      return {
-        ok: false,
-        summary: 'request_json.method is required',
-        details: { example: { method: 'open_scene', params: { path: 'res://Main.tscn' } } },
-      };
+    try {
+      const requestJson = asRecord(parseJsonish(args.request_json), 'request_json');
+      method = asNonEmptyString((requestJson as any).method, 'request_json.method');
+      params = asOptionalRecord((requestJson as any).params, 'request_json.params') ?? {};
+      timeoutMs = asOptionalPositiveNumber(args.timeoutMs, 'timeoutMs') ?? 10000;
+    } catch (error) {
+      const invalid = invalidArgs('godot_rpc', error);
+      if (invalid) return invalid;
+      throw error;
     }
 
     try {
       assertEditorRpcAllowed(method, params, this.editorProjectPath);
-      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 10000;
-      const resp = await this.editorClient.request(method, params, timeoutMs);
+      const resp = await this.editorClient.request(method, params, timeoutMs);  
       return {
         ok: resp.ok,
-        summary: resp.ok ? `RPC ok: ${method}` : `RPC failed: ${method}`,  
+        summary: resp.ok ? `RPC ok: ${method}` : `RPC failed: ${method}`,       
         details: resp.ok ? { result: resp.result } : { error: resp.error },
       };
     } catch (error) {
@@ -1076,29 +1142,85 @@ export class GodotMcpOmniServer {
       return { ok: false, summary: 'Not connected to editor bridge', details: { suggestions: ['Call godot_connect_editor first'] } };
     }
 
-    const query = parseJsonish(args.query_json) as any;
-    let method: string | undefined;
-    let params: Record<string, unknown> = {};
+    let method: string;
+    let params: Record<string, unknown>;
+    let timeoutMs: number;
 
-    if (typeof query?.class_name === 'string' || typeof query?.className === 'string') {
-      method = 'inspect_class';
-      params = { class_name: (query.class_name ?? query.className) as string };
-    } else if (typeof query?.node_path === 'string' || typeof query?.nodePath === 'string') {
-      method = 'inspect_object';
-      params = { node_path: (query.node_path ?? query.nodePath) as string };
-    }
+    try {
+      const query = asRecord(parseJsonish(args.query_json), 'query_json');
+      timeoutMs = asOptionalPositiveNumber(args.timeoutMs, 'timeoutMs') ?? 10000;
 
-    if (!method) {
-      return {
-        ok: false,
-        summary: 'Invalid query_json',
-        details: { suggestions: ['Provide {class_name:\"Node2D\"} or {node_path:\"/root\"}'] },
-      };
+      const allowedKeys = new Set([
+        'class_name',
+        'className',
+        'node_path',
+        'nodePath',
+        'instance_id',
+        'instanceId',
+      ]);
+      const unknownKeys = Object.keys(query).filter((k) => !allowedKeys.has(k));
+      if (unknownKeys.length > 0) {
+        throw new ValidationError(
+          'query_json',
+          `Invalid field \"query_json\": unknown keys: ${unknownKeys.join(', ')}`,
+          'object'
+        );
+      }
+
+      const className =
+        typeof (query as any).class_name === 'string'
+          ? (query as any).class_name
+          : typeof (query as any).className === 'string'
+          ? (query as any).className
+          : undefined;
+
+      const nodePath =
+        typeof (query as any).node_path === 'string'
+          ? (query as any).node_path
+          : typeof (query as any).nodePath === 'string'
+          ? (query as any).nodePath
+          : undefined;
+
+      const instanceIdRaw = (query as any).instance_id ?? (query as any).instanceId;
+
+      const modeCount =
+        Number(Boolean(className)) +
+        Number(Boolean(nodePath)) +
+        Number(instanceIdRaw !== undefined);
+      if (modeCount !== 1) {
+        throw new ValidationError(
+          'query_json',
+          'Invalid field \"query_json\": expected exactly one of {class_name}, {node_path}, {instance_id}',
+          'object'
+        );
+      }
+
+      if (className !== undefined) {
+        method = 'inspect_class';
+        params = { class_name: asNonEmptyString(className, 'query_json.class_name') };
+      } else if (nodePath !== undefined) {
+        method = 'inspect_object';
+        params = { node_path: asNonEmptyString(nodePath, 'query_json.node_path') };
+      } else {
+        const instanceId = asPositiveNumber(instanceIdRaw, 'query_json.instance_id');
+        if (!Number.isInteger(instanceId)) {
+          throw new ValidationError(
+            'query_json.instance_id',
+            'Invalid field \"query_json.instance_id\": expected integer',
+            'number'
+          );
+        }
+        method = 'inspect_object';
+        params = { instance_id: instanceId };
+      }
+    } catch (error) {
+      const invalid = invalidArgs('godot_inspect', error);
+      if (invalid) return invalid;
+      throw error;
     }
 
     try {
-      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 10000;
-      const resp = await this.editorClient.request(method, params, timeoutMs);
+      const resp = await this.editorClient.request(method, params, timeoutMs);  
       return {
         ok: resp.ok,
         summary: resp.ok ? `Inspect ok: ${method}` : `Inspect failed: ${method}`,
