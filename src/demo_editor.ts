@@ -5,21 +5,11 @@ import fs from 'fs/promises';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { detectGodotPath, isValidGodotPath } from './godot_cli.js';
-
-type JsonRpcResponse =
-  | { jsonrpc: '2.0'; id: number; result: unknown }
-  | { jsonrpc: '2.0'; id: number; error: unknown };
-
-function getTextContent(mcpResult: any): string {
-  if (!mcpResult || !Array.isArray(mcpResult.content)) throw new Error(`Bad MCP result: ${JSON.stringify(mcpResult)}`);
-  const text = mcpResult.content.find((c: any) => c?.type === 'text')?.text;
-  if (typeof text !== 'string') throw new Error(`Missing text content: ${JSON.stringify(mcpResult)}`);
-  return text;
-}
+import { JsonRpcProcessClient } from './utils/jsonrpc_process_client.js';
 
 async function ensureTempProjectHasAddon(projectPath: string, repoRoot: string): Promise<void> {
   const srcAddon = path.join(repoRoot, 'addons', 'godot_mcp_bridge');
-  const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');
+  const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');        
   await fs.mkdir(path.dirname(dstAddon), { recursive: true });
   await fs.cp(srcAddon, dstAddon, { recursive: true, force: true });
 }
@@ -93,12 +83,10 @@ async function main() {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
-
-  const pending = new Map<number, { resolve: (v: JsonRpcResponse) => void; reject: (e: Error) => void }>();
-  let nextId = 1;
-  let stdoutBuffer = '';
+  const client = new JsonRpcProcessClient(server);
 
   const shutdown = async () => {
+    client.dispose();
     try {
       server.kill();
     } catch {
@@ -111,79 +99,12 @@ async function main() {
     }
   };
 
-  server.on('exit', (code) => {
-    for (const { reject } of pending.values()) reject(new Error(`Server exited (code=${code ?? 'null'})`));
-    pending.clear();
-  });
-
   server.stderr.on('data', (d: Buffer) => {
     if (debug) process.stderr.write(d);
   });
 
-  server.stdout.on('data', (d: Buffer) => {
-    stdoutBuffer += d.toString('utf8');
-    while (true) {
-      const idx = stdoutBuffer.indexOf('\n');
-      if (idx === -1) break;
-      const line = stdoutBuffer.slice(0, idx).trim();
-      stdoutBuffer = stdoutBuffer.slice(idx + 1);
-      if (!line) continue;
-
-      let msg: any;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      if (typeof msg?.id !== 'number') continue;
-      const p = pending.get(msg.id);
-      if (!p) continue;
-      pending.delete(msg.id);
-      p.resolve(msg as JsonRpcResponse);
-    }
-  });
-
-  const send = async (method: string, params: any, timeoutMs = 30000): Promise<JsonRpcResponse> => {
-    const id = nextId++;
-    const request = { jsonrpc: '2.0', id, method, params };
-
-    if (!server.stdin.writable) throw new Error('Server stdin not writable');
-    server.stdin.write(`${JSON.stringify(request)}\n`);
-
-    return await new Promise<JsonRpcResponse>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Timeout waiting for ${method} (id=${id})`)), timeoutMs);
-      pending.set(id, {
-        resolve: (v) => {
-          clearTimeout(timeout);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timeout);
-          reject(e);
-        },
-      });
-    });
-  };
-
-  const callTool = async (name: string, args: Record<string, unknown>) => {
-    const resp = await send('tools/call', { name, arguments: args });
-    if ('error' in resp) throw new Error(`tools/call error: ${JSON.stringify(resp.error)}`);
-
-    const toolText = getTextContent((resp as any).result);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(toolText);
-    } catch {
-      throw new Error(`Tool ${name} returned non-JSON text: ${toolText}`);
-    }
-    if (!parsed?.ok) {
-      const details = parsed?.details ? `\nDetails: ${JSON.stringify(parsed.details, null, 2)}` : '';
-      const logs = parsed?.logs ? `\nLogs: ${JSON.stringify(parsed.logs, null, 2)}` : '';
-      throw new Error(`Tool ${name} failed: ${parsed?.summary ?? 'Unknown error'}${details}${logs}`);
-    }
-    return parsed;
-  };
+  const send = async (method: string, params: any, timeoutMs = 30000) => await client.send(method, params, timeoutMs);
+  const callTool = async (name: string, args: Record<string, unknown>) => await client.callToolOrThrow(name, args);
 
   try {
     const listResp = await send('tools/list', {});
@@ -241,4 +162,3 @@ main().catch((error: unknown) => {
   console.error(message);
   process.exit(1);
 });
-

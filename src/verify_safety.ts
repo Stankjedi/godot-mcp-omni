@@ -1,20 +1,11 @@
-import { fileURLToPath } from 'url';
-import path from 'path';
-import os from 'os';
-import fs from 'fs/promises';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+
 import { detectGodotPath, isValidGodotPath } from './godot_cli.js';
-
-type JsonRpcResponse =
-  | { jsonrpc: '2.0'; id: number; result: unknown }
-  | { jsonrpc: '2.0'; id: number; error: unknown };
-
-function getTextContent(mcpResult: any): string {
-  if (!mcpResult || !Array.isArray(mcpResult.content)) throw new Error(`Bad MCP result: ${JSON.stringify(mcpResult)}`);
-  const text = mcpResult.content.find((c: any) => c?.type === 'text')?.text;
-  if (typeof text !== 'string') throw new Error(`Missing text content: ${JSON.stringify(mcpResult)}`);
-  return text;
-}
+import { JsonRpcProcessClient } from './utils/jsonrpc_process_client.js';
 
 async function main() {
   const debug = process.env.SAFETY_DEBUG === 'true';
@@ -56,12 +47,10 @@ async function main() {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
-
-  const pending = new Map<number, { resolve: (v: JsonRpcResponse) => void; reject: (e: Error) => void }>();
-  let nextId = 1;
-  let stdoutBuffer = '';
+  const client = new JsonRpcProcessClient(server);
 
   const shutdown = async () => {
+    client.dispose();
     try {
       server.kill();
     } catch {
@@ -74,78 +63,15 @@ async function main() {
     }
   };
 
-  server.on('exit', (code) => {
-    for (const { reject } of pending.values()) reject(new Error(`Server exited (code=${code ?? 'null'})`));
-    pending.clear();
-  });
-
   server.stderr.on('data', (d: Buffer) => {
     if (debug) process.stderr.write(d);
   });
 
-  server.stdout.on('data', (d: Buffer) => {
-    stdoutBuffer += d.toString('utf8');
-    while (true) {
-      const idx = stdoutBuffer.indexOf('\n');
-      if (idx === -1) break;
-      const line = stdoutBuffer.slice(0, idx).trim();
-      stdoutBuffer = stdoutBuffer.slice(idx + 1);
-      if (!line) continue;
-
-      let msg: any;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      if (typeof msg?.id !== 'number') continue;
-      const p = pending.get(msg.id);
-      if (!p) continue;
-      pending.delete(msg.id);
-      p.resolve(msg as JsonRpcResponse);
-    }
-  });
-
-  const send = async (method: string, params: any, timeoutMs = 30000): Promise<JsonRpcResponse> => {
-    const id = nextId++;
-    const request = { jsonrpc: '2.0', id, method, params };
-
-    if (!server.stdin.writable) throw new Error('Server stdin not writable');
-    server.stdin.write(`${JSON.stringify(request)}\n`);
-
-    return await new Promise<JsonRpcResponse>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Timeout waiting for ${method} (id=${id})`)), timeoutMs);
-      pending.set(id, {
-        resolve: (v) => {
-          clearTimeout(timeout);
-          resolve(v);
-        },
-        reject: (e) => {
-          clearTimeout(timeout);
-          reject(e);
-        },
-      });
-    });
-  };
-
-  const callTool = async (name: string, args: Record<string, unknown>) => {
-    const resp = await send('tools/call', { name, arguments: args });
-    if ('error' in resp) throw new Error(`tools/call error: ${JSON.stringify(resp.error)}`);
-
-    const toolText = getTextContent((resp as any).result);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(toolText);
-    } catch {
-      throw new Error(`Tool ${name} returned non-JSON text: ${toolText}`);
-    }
-    return parsed;
-  };
-
   try {
-    const listResp = await send('tools/list', {});
+    const listResp = await client.send('tools/list', {});
     if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
+
+    const callTool = async (name: string, args: Record<string, unknown>) => await client.callTool(name, args);
 
     // 0) Validation: missing required args should fail fast with a structured error.
     const invalidArgsResp = await callTool('godot_headless_op', {
@@ -163,13 +89,17 @@ async function main() {
       );
     }
 
-    // 1) Path allowlist: attempt to escape project root should be blocked.     
+    // 1) Path allowlist: attempt to escape project root should be blocked.
     const outsideWrite = await callTool('godot_headless_op', {
       projectPath,
       operation: 'write_text_file',
       params: { path: '../outside.txt', content: 'blocked' },
     });
-    if (outsideWrite?.ok !== false || typeof outsideWrite?.summary !== 'string' || !outsideWrite.summary.includes('Path escapes project root')) {
+    if (
+      outsideWrite?.ok !== false ||
+      typeof outsideWrite?.summary !== 'string' ||
+      !outsideWrite.summary.includes('Path escapes project root')
+    ) {
       throw new Error(`Expected outside write to be blocked. Got: ${JSON.stringify(outsideWrite, null, 2)}`);
     }
 
@@ -179,7 +109,11 @@ async function main() {
       operation: 'export_mesh_library',
       params: {},
     });
-    if (exportAttempt?.ok !== false || typeof exportAttempt?.summary !== 'string' || !exportAttempt.summary.includes('Dangerous operation blocked')) {
+    if (
+      exportAttempt?.ok !== false ||
+      typeof exportAttempt?.summary !== 'string' ||
+      !exportAttempt.summary.includes('Dangerous operation blocked')
+    ) {
       throw new Error(`Expected dangerous op to be blocked. Got: ${JSON.stringify(exportAttempt, null, 2)}`);
     }
 
@@ -201,3 +135,4 @@ main().catch((error: unknown) => {
   console.error(message);
   process.exit(1);
 });
+
