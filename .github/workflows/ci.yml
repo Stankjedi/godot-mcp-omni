@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-smoke-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GODOT_VERSION: 4.5.1-stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download Godot (Linux x86_64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/godot
+          curl -fsSL -o .tmp/godot/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q .tmp/godot/godot.zip -d .tmp/godot
+          chmod +x ".tmp/godot/Godot_v${GODOT_VERSION}_linux.x86_64"
+          echo "GODOT_PATH=$PWD/.tmp/godot/Godot_v${GODOT_VERSION}_linux.x86_64" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke (headless ops)
+        run: npm run smoke
+
+      - name: Safety verification
+        run: npm run verify:safety
+
