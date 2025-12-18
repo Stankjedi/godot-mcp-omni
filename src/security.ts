@@ -190,11 +190,26 @@ export function assertEditorRpcAllowed(method: string, params: Record<string, un
   // Generic RPC safety gates (call/set/get).
   if (m === 'call' || m === 'set' || m === 'get') {
     const { targetType, targetId, method: innerMethod } = getTargetInfo(params);
+    const targetTypeNormalized = typeof targetType === 'string' ? targetType.trim() : undefined;
+    const targetIdNormalized = typeof targetId === 'string' ? targetId.trim() : undefined;
 
-    if (isDangerousRpcTarget(targetType, targetId)) {
+    if (isDangerousRpcTarget(targetTypeNormalized, targetIdNormalized)) {
       // By default, block OS/ProjectSettings/FileAccess access; allow only when explicitly enabled.
       if (process.env.ALLOW_DANGEROUS_OPS !== 'true') {
         throw new Error(`Dangerous RPC blocked (${String(targetId)}.${String(innerMethod ?? m)}). Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.`);
+      }
+    }
+
+    // Resource targets often use a path in target_id.
+    if (targetTypeNormalized === 'resource' && targetIdNormalized) {
+      resolveInsideProject(projectPath, targetIdNormalized);
+    }
+
+    // FileAccess APIs take the path as the first arg (validate even when dangerous ops are allowed).
+    if (targetTypeNormalized === 'singleton' && targetIdNormalized?.toLowerCase() === 'fileaccess') {
+      const args = params.args;
+      if (Array.isArray(args) && typeof args[0] === 'string' && args[0].length > 0) {
+        resolveInsideProject(projectPath, args[0]);
       }
     }
 

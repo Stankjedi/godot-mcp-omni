@@ -384,6 +384,7 @@ export class GodotMcpOmniServer {
               token: { type: 'string', description: 'Optional: auth token' },
               host: { type: 'string', description: 'Optional: host (default 127.0.0.1)' },
               port: { type: 'number', description: 'Optional: port (default 8765)' },
+              timeoutMs: { type: 'number', description: 'Optional: connect/hello timeout in ms (default: 30000)' },
             },
             required: ['projectPath'],
           },
@@ -398,6 +399,7 @@ export class GodotMcpOmniServer {
                 description: 'Either an object or a JSON string (must include method and optional params).',
                 anyOf: [{ type: 'object' }, { type: 'string' }],
               },
+              timeoutMs: { type: 'number', description: 'Optional: RPC timeout in ms (default: 10000)' },
             },
             required: ['request_json'],
           },
@@ -412,6 +414,7 @@ export class GodotMcpOmniServer {
                 description: 'Either an object or a JSON string (class_name or node_path, or {method, params}).',
                 anyOf: [{ type: 'object' }, { type: 'string' }],
               },
+              timeoutMs: { type: 'number', description: 'Optional: RPC timeout in ms (default: 10000)' },
             },
             required: ['query_json'],
           },
@@ -990,7 +993,7 @@ export class GodotMcpOmniServer {
       const host = typeof args.host === 'string' ? args.host : '127.0.0.1';
 
       // Best-effort launch the editor; if it’s already running, connect will work.
-      const godotPath = await this.ensureGodotPath(args.godotPath);
+      const godotPath = await this.ensureGodotPath(args.godotPath);       
       spawn(godotPath, ['-e', '--path', args.projectPath], {
         stdio: 'ignore',
         detached: true,
@@ -1003,7 +1006,8 @@ export class GodotMcpOmniServer {
       }).unref();
 
       const client = new EditorBridgeClient();
-      const helloOk = await client.connect({ host, port, token, timeoutMs: 10000 });
+      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 30000;
+      const helloOk = await client.connect({ host, port, token, timeoutMs });
 
       this.editorClient?.close();
       this.editorClient = client;
@@ -1041,7 +1045,8 @@ export class GodotMcpOmniServer {
 
     try {
       assertEditorRpcAllowed(method, params, this.editorProjectPath);
-      const resp = await this.editorClient.request(method, params);       
+      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 10000;
+      const resp = await this.editorClient.request(method, params, timeoutMs);
       return {
         ok: resp.ok,
         summary: resp.ok ? `RPC ok: ${method}` : `RPC failed: ${method}`,  
@@ -1078,7 +1083,8 @@ export class GodotMcpOmniServer {
     }
 
     try {
-      const resp = await this.editorClient.request(method, params);
+      const timeoutMs = typeof args.timeoutMs === 'number' && args.timeoutMs > 0 ? args.timeoutMs : 10000;
+      const resp = await this.editorClient.request(method, params, timeoutMs);
       return {
         ok: resp.ok,
         summary: resp.ok ? `Inspect ok: ${method}` : `Inspect failed: ${method}`,
