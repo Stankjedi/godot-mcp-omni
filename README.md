@@ -12,19 +12,28 @@
 
 ---
 
-## 🆚 기존 godot-mcp와의 차이점
+## ✨ 추가된 기능
 
-| 기능 | godot-mcp (원본) | godot-mcp-omni (이 프로젝트) |
-|------|------------------|------------------------------|
-| **Headless 작업** | ❌ 에디터 필요 | ✅ CI/CD에서 GUI 없이 실행 |
-| **Scene 생성/편집** | ❌ 미지원 | ✅ `create_scene`, `add_node`, `save_scene` |
-| **Sprite/Texture 로딩** | ❌ 미지원 | ✅ `load_sprite` (PNG, SVG 지원) |
-| **MeshLibrary 익스포트** | ❌ 미지원 | ✅ `export_mesh_library` |
-| **UID 관리 (Godot 4.4+)** | ❌ 미지원 | ✅ `get_uid`, `update_project_uids` |
-| **에디터 RPC 제어** | ❌ 미지원 | ✅ `godot_connect_editor`, `godot_rpc`, `godot_inspect` |
-| **프로젝트 임포트** | ❌ 미지원 | ✅ `godot_import_project_assets` |
-| **진단/트러블슈팅** | 기본 에러만 | ✅ 상세 diagnostics + suggestions |
-| **타입 안전성** | `any` 사용 | ✅ `unknown` + 런타임 검증 |
+[Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) 기반으로 다음 기능들이 추가되었습니다:
+
+### 🎬 Headless 작업 (CI/CD 지원)
+- **Scene 관리**: `create_scene`, `add_node`, `save_scene` - GUI 없이 씬 생성/편집
+- **텍스처 로딩**: `load_sprite` - PNG, SVG 텍스처를 Sprite에 로드
+- **MeshLibrary**: `export_mesh_library` - 3D 씬을 GridMap용 라이브러리로 익스포트
+- **에셋 임포트**: `godot_import_project_assets` - headless 모드에서 에셋 임포트
+
+### 🔌 에디터 브릿지 (실시간 제어)
+- **연결**: `godot_connect_editor` - 실행 중인 에디터와 TCP 연결
+- **RPC 호출**: `godot_rpc` - 에디터에 직접 명령 전송
+- **검사**: `godot_inspect` - 클래스/노드/인스턴스 정보 조회
+
+### 🔧 UID 관리 (Godot 4.4+)
+- `get_uid` - 파일의 UID 조회
+- `update_project_uids` - 프로젝트 전체 UID 갱신
+
+### 📊 진단 개선
+- 연결 실패 시 상세 diagnostics + 해결 suggestions 제공
+- 타입 안전한 입력 검증 (`unknown` + 런타임 체크)
 
 ---
 
