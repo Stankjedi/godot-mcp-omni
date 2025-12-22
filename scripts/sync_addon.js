@@ -95,6 +95,13 @@ async function main() {
 
   const srcAddon = path.join(repoRoot, 'addons', 'godot_mcp_bridge');
   const dstAddon = path.join(absProjectPath, 'addons', 'godot_mcp_bridge');
+  const lockPath = path.join(absProjectPath, '.godot_mcp', 'bridge.lock');
+
+  if (await fs.pathExists(lockPath)) {
+    throw new Error(
+      `Editor bridge appears to be running. Close the editor before syncing the addon. (${lockPath})`
+    );
+  }
 
   logs.push(`Copying addon: ${srcAddon} -> ${dstAddon}`);
   await fs.ensureDir(path.dirname(dstAddon));
@@ -126,4 +133,3 @@ main().catch((error) => {
   console.log(JSON.stringify({ ok: false, summary: message, logs: [] }));
   process.exit(1);
 });
-

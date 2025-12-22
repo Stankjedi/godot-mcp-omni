@@ -47,6 +47,28 @@ export function asOptionalString(value: unknown, fieldName: string): string | un
   return asString(value, fieldName);
 }
 
+export function asOptionalNonEmptyString(value: unknown, fieldName: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return asNonEmptyString(value, fieldName);
+}
+
+export function asBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== 'boolean') fail(fieldName, 'boolean', value);
+  return value;
+}
+
+export function asOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  return asBoolean(value, fieldName);
+}
+
+export function hasTraversalSegment(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return true;
+  const parts = trimmed.split(/[\\/]+/u).filter(Boolean);
+  return parts.some((part) => part === '..');
+}
+
 export function asNumber(value: unknown, fieldName: string): number {
   if (typeof value !== 'number' || Number.isNaN(value)) fail(fieldName, 'number', value);
   return value;

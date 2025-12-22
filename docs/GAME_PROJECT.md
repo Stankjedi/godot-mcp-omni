@@ -1,6 +1,6 @@
 # Game Project (Separate Folder)
 
-The Godot “vertical slice” game project is developed in a **separate folder** from this MCP server repo.
+This repository ships the MCP server and the editor bridge addon only. The Godot “vertical slice” game project is developed in a **separate folder/repo**.
 
 Recommended layout:
 

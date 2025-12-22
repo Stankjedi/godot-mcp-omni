@@ -1,3 +1,5 @@
+import type { ChildProcess } from 'child_process';
+
 export interface ToolResponse {
   ok: boolean;
   summary: string;
@@ -6,11 +8,10 @@ export interface ToolResponse {
 }
 
 export interface GodotProcess {
-  process: any;
+  process: ChildProcess;
   output: string[];
   errors: string[];
   projectPath?: string;
 }
 
-export type ToolHandler = (args: any) => Promise<ToolResponse>;
-
+export type ToolHandler = (args: unknown) => Promise<ToolResponse>;

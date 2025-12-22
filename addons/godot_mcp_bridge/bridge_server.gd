@@ -10,10 +10,12 @@ var _handlers: RefCounted = null
 var _host := "127.0.0.1"
 var _port := 0
 
-func start(port: int, token: String, handlers: RefCounted) -> Dictionary:
+func start(port: int, token: String, handlers: RefCounted, host: String = "127.0.0.1") -> Dictionary:
 	_token = token.strip_edges()
 	_handlers = handlers
-	_host = "127.0.0.1"
+	_host = host.strip_edges()
+	if _host.is_empty():
+		_host = "127.0.0.1"
 	_port = port
 
 	var err := _server.listen(port, _host)
@@ -109,11 +111,25 @@ func _handle_hello(msg: Dictionary) -> void:
 
 func _handle_request(msg: Dictionary) -> void:
 	var id_v := msg.get("id", null)
-	if typeof(id_v) != TYPE_INT:
-		_send({ "id": 0, "ok": false, "error": { "message": "Missing numeric id" } })
-		return
+	var id := 0
+	match typeof(id_v):
+		TYPE_INT:
+			id = int(id_v)
+		TYPE_FLOAT:
+			if float(id_v) != floor(float(id_v)):
+				_send({ "id": 0, "ok": false, "error": { "message": "Invalid id (expected integer)" } })
+				return
+			id = int(id_v)
+		TYPE_STRING:
+			var s := String(id_v)
+			if not s.is_valid_int():
+				_send({ "id": 0, "ok": false, "error": { "message": "Invalid id (expected integer)" } })
+				return
+			id = int(s)
+		_:
+			_send({ "id": 0, "ok": false, "error": { "message": "Missing numeric id" } })
+			return
 
-	var id := int(id_v)
 	var method := String(msg.get("method", ""))
 	var params_v := msg.get("params", {})
 	var params: Dictionary = params_v if typeof(params_v) == TYPE_DICTIONARY else {}

@@ -36,7 +36,7 @@ For tool calls tied to a project (via `projectPath`, or an active editor connect
 
 `<projectPath>/.godot_mcp/audit.log`
 
-Tokens are redacted.
+Tokens are redacted. The audit log also redacts common sensitive keys (passwords, secrets, API keys) to reduce accidental leakage. Do not store secrets in tool arguments.
 
 ### Rotation / size limits
 

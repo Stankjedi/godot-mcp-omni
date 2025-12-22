@@ -92,13 +92,84 @@ export function redactSecrets(value: unknown): unknown {
   const obj = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (k.toLowerCase().includes('token')) {
+    if (isSensitiveKey(k)) {
       out[k] = '[REDACTED]';
       continue;
     }
     out[k] = redactSecrets(v);
   }
   return out;
+}
+
+const SENSITIVE_EXACT = new Set([
+  'token',
+  'id_token',
+  'auth_token',
+  'access_token',
+  'refresh_token',
+  'api_key',
+  'apikey',
+  'client_secret',
+  'clientsecret',
+  'secret_key',
+  'private_key',
+  'privatekey',
+  'password',
+  'passwd',
+  'secret',
+]);
+
+const SENSITIVE_TOKENS = new Set([
+  'token',
+  'password',
+  'passwd',
+  'secret',
+  'apikey',
+  'clientsecret',
+  'privatekey',
+]);
+
+const SENSITIVE_PAIRS: Array<[string, string]> = [
+  ['access', 'token'],
+  ['refresh', 'token'],
+  ['api', 'key'],
+  ['client', 'secret'],
+  ['private', 'key'],
+];
+
+function tokenizeKey(key: string): string[] {
+  const expanded = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^a-zA-Z0-9]+/gu, ' ')
+    .trim();
+  if (!expanded) return [];
+  return expanded.toLowerCase().split(/\s+/gu).filter(Boolean);
+}
+
+function isSensitiveKey(key: string): boolean {
+  const trimmed = key.trim();
+  if (!trimmed) return false;
+
+  const lowered = trimmed.toLowerCase();
+  if (SENSITIVE_EXACT.has(lowered)) return true;
+
+  const normalized = lowered.replace(/[^a-z0-9]+/gu, '_');
+  if (SENSITIVE_EXACT.has(normalized)) return true;
+
+  const tokens = tokenizeKey(trimmed);
+  if (!tokens.length) return false;
+
+  for (const token of tokens) {
+    if (SENSITIVE_TOKENS.has(token)) return true;
+  }
+
+  const tokenSet = new Set(tokens);
+  for (const [first, second] of SENSITIVE_PAIRS) {
+    if (tokenSet.has(first) && tokenSet.has(second)) return true;
+  }
+
+  return false;
 }
 
 function normalizeForComparison(p: string): string {

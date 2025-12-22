@@ -1,246 +1,270 @@
-
 # godot-mcp-omni
 
-Fork of `Coding-Solo/godot-mcp`, extended into an “omni” MCP:
+> **"AI가 Godot 게임 개발을 자동화할 수 있는 MCP 서버"**
 
-- Headless resource/scene ops (CI-friendly)
-- In-editor ops via `addons/godot_mcp_bridge/` (TCP JSON-RPC)
+`Coding-Solo/godot-mcp`의 확장 포크로, **headless 자동화**와 **에디터 실시간 제어**를 모두 지원합니다.
 
-[![Github-sponsors](https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#EA4AAA)](https://github.com/sponsors/Coding-Solo)
+[![MCP Server](https://badge.mcpx.dev?type=server)](https://modelcontextprotocol.io/introduction)
+[![Made with Godot](https://img.shields.io/badge/Made%20with-Godot%204.4+-478CBF?style=flat&logo=godot%20engine&logoColor=white)](https://godotengine.org)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
-[![](https://badge.mcpx.dev?type=server 'MCP Server')](https://modelcontextprotocol.io/introduction)
-[![Made with Godot](https://img.shields.io/badge/Made%20with-Godot-478CBF?style=flat&logo=godot%20engine&logoColor=white)](https://godotengine.org)
-[![](https://img.shields.io/badge/Node.js-339933?style=flat&logo=nodedotjs&logoColor=white 'Node.js')](https://nodejs.org/en/download/)
-[![](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white 'TypeScript')](https://www.typescriptlang.org/)
+---
 
-[![](https://img.shields.io/github/last-commit/Coding-Solo/godot-mcp 'Last Commit')](https://github.com/Coding-Solo/godot-mcp/commits/main)
-[![](https://img.shields.io/github/stars/Coding-Solo/godot-mcp 'Stars')](https://github.com/Coding-Solo/godot-mcp/stargazers)
-[![](https://img.shields.io/github/forks/Coding-Solo/godot-mcp 'Forks')](https://github.com/Coding-Solo/godot-mcp/network/members)
-[![](https://img.shields.io/badge/License-MIT-red.svg 'MIT License')](https://opensource.org/licenses/MIT)
+## 🆚 기존 godot-mcp와의 차이점
 
-```text
-                           (((((((             (((((((                          
-                        (((((((((((           (((((((((((                      
-                        (((((((((((((       (((((((((((((                       
-                        (((((((((((((((((((((((((((((((((                       
-                        (((((((((((((((((((((((((((((((((                       
-         (((((      (((((((((((((((((((((((((((((((((((((((((      (((((        
-       (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((      
-     ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((    
-    ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((    
-      (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((     
-        (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((       
-         (((((((((((@@@@@@@(((((((((((((((((((((((((((@@@@@@@(((((((((((        
-         (((((((((@@@@,,,,,@@@(((((((((((((((((((((@@@,,,,,@@@@(((((((((        
-         ((((((((@@@,,,,,,,,,@@(((((((@@@@@(((((((@@,,,,,,,,,@@@((((((((        
-         ((((((((@@@,,,,,,,,,@@(((((((@@@@@(((((((@@,,,,,,,,,@@@((((((((        
-         (((((((((@@@,,,,,,,@@((((((((@@@@@((((((((@@,,,,,,,@@@(((((((((        
-         ((((((((((((@@@@@@(((((((((((@@@@@(((((((((((@@@@@@((((((((((((        
-         (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((        
-         (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((        
-         @@@@@@@@@@@@@((((((((((((@@@@@@@@@@@@@((((((((((((@@@@@@@@@@@@@        
-         ((((((((( @@@(((((((((((@@(((((((((((@@(((((((((((@@@ (((((((((        
-         (((((((((( @@((((((((((@@@(((((((((((@@@((((((((((@@ ((((((((((        
-          (((((((((((@@@@@@@@@@@@@@(((((((((((@@@@@@@@@@@@@@(((((((((((         
-           (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((          
-              (((((((((((((((((((((((((((((((((((((((((((((((((((((             
-                 (((((((((((((((((((((((((((((((((((((((((((((((                
-                        (((((((((((((((((((((((((((((((((                       
-                                                                                
+| 기능 | godot-mcp (원본) | godot-mcp-omni (이 프로젝트) |
+|------|------------------|------------------------------|
+| **Headless 작업** | ❌ 에디터 필요 | ✅ CI/CD에서 GUI 없이 실행 |
+| **Scene 생성/편집** | ❌ 미지원 | ✅ `create_scene`, `add_node`, `save_scene` |
+| **Sprite/Texture 로딩** | ❌ 미지원 | ✅ `load_sprite` (PNG, SVG 지원) |
+| **MeshLibrary 익스포트** | ❌ 미지원 | ✅ `export_mesh_library` |
+| **UID 관리 (Godot 4.4+)** | ❌ 미지원 | ✅ `get_uid`, `update_project_uids` |
+| **에디터 RPC 제어** | ❌ 미지원 | ✅ `godot_connect_editor`, `godot_rpc`, `godot_inspect` |
+| **프로젝트 임포트** | ❌ 미지원 | ✅ `godot_import_project_assets` |
+| **진단/트러블슈팅** | 기본 에러만 | ✅ 상세 diagnostics + suggestions |
+| **타입 안전성** | `any` 사용 | ✅ `unknown` + 런타임 검증 |
 
-                          /$$      /$$  /$$$$$$  /$$$$$$$ 
-                         | $$$    /$$$ /$$__  $$| $$__  $$
-                         | $$$$  /$$$$| $$  \__/| $$  \ $$
-                         | $$ $$/$$ $$| $$      | $$$$$$$/
-                         | $$  $$$| $$| $$      | $$____/ 
-                         | $$\  $ | $$| $$    $$| $$      
-                         | $$ \/  | $$|  $$$$$$/| $$      
-                         |__/     |__/ \______/ |__/       
-```
+---
 
-A Model Context Protocol (MCP) server for interacting with the Godot game engine.
+## 📦 요구사항
 
-## Introduction
+- **Godot Engine 4.4+** ([다운로드](https://godotengine.org/download))
+- **Node.js 20+** ([다운로드](https://nodejs.org/))
+- **MCP 지원 AI 어시스턴트** (Cline, Cursor, Claude Desktop 등)
 
-Godot MCP enables AI assistants to launch the Godot editor, run projects, capture debug output, and control project execution - all through a standardized interface.
+---
 
-This direct feedback loop helps AI assistants like Claude understand what works and what doesn't in real Godot projects, leading to better code generation and debugging assistance.
+## 🚀 빠른 시작
 
-## Features
-
-- **Launch Godot Editor**: Open the Godot editor for a specific project
-- **Run Godot Projects**: Execute Godot projects in debug mode
-- **Capture Debug Output**: Retrieve console output and error messages
-- **Control Execution**: Start and stop Godot projects programmatically
-- **Get Godot Version**: Retrieve the installed Godot version
-- **List Godot Projects**: Find Godot projects in a specified directory
-- **Project Analysis**: Get detailed information about project structure
-- **Scene Management**:
-  - Create new scenes with specified root node types
-  - Add nodes to existing scenes with customizable properties
-  - Load sprites and textures into Sprite2D nodes
-  - Export 3D scenes as MeshLibrary resources for GridMap
-  - Save scenes with options for creating variants
-- **UID Management** (for Godot 4.4+):
-  - Get UID for specific files
-  - Update UID references by resaving resources
-
-## Requirements
-
-- [Godot Engine](https://godotengine.org/download) installed on your system
-- Node.js and npm
-- An AI assistant that supports MCP (Cline, Cursor, etc.)
-
-## Installation and Configuration
-
-### Step 1: Install and Build
-
-First, clone the repository and build the MCP server:
+### 1. 설치
 
 ```bash
-git clone https://github.com/Coding-Solo/godot-mcp.git
-cd godot-mcp
+git clone https://github.com/your-username/godot-mcp-omni.git
+cd godot-mcp-omni
 npm install
 npm run build
 ```
 
-### Step 2: Configure with Your AI Assistant
+### 2. 테스트 실행
 
-#### Option A: Configure with Cline
+```bash
+# 단위 테스트
+npm test
 
-Add to your Cline MCP settings file (`~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "godot": {
-      "command": "node",
-      "args": ["/absolute/path/to/godot-mcp/build/index.js"],
-      "env": {
-        "DEBUG": "true"                  // Optional: Enable detailed logging
-      },
-      "disabled": false,
-      "autoApprove": [
-        "launch_editor",
-        "run_project",
-        "get_debug_output",
-        "stop_project",
-        "get_godot_version",
-        "list_projects",
-        "get_project_info",
-        "create_scene",
-        "add_node",
-        "load_sprite",
-        "export_mesh_library",
-        "save_scene",
-        "get_uid",
-        "update_project_uids"
-      ]
-    }
-  }
-}
+# 전체 MCP 기능 검증 (Godot 필요)
+GODOT_PATH=/path/to/godot VERIFY_MCP_SKIP_EDITOR=true npm run verify:mcp
 ```
 
-#### Option B: Configure with Cursor
+### 3. AI 어시스턴트에 연결
 
-**Using the Cursor UI:**
-
-1. Go to **Cursor Settings** > **Features** > **MCP**
-2. Click on the **+ Add New MCP Server** button
-3. Fill out the form:
-   - Name: `godot` (or any name you prefer)
-   - Type: `command`
-   - Command: `node /absolute/path/to/godot-mcp/build/index.js`
-4. Click "Add"
-5. You may need to press the refresh button in the top right corner of the MCP server card to populate the tool list
-
-**Using Project-Specific Configuration:**
-
-Create a file at `.cursor/mcp.json` in your project directory with the following content:
+#### Cline 설정 (`cline_mcp_settings.json`)
 
 ```json
 {
   "mcpServers": {
     "godot": {
       "command": "node",
-      "args": ["/absolute/path/to/godot-mcp/build/index.js"],
+      "args": ["/absolute/path/to/godot-mcp-omni/build/index.js"],
       "env": {
-        "DEBUG": "true"                  // Enable detailed logging
+        "GODOT_PATH": "/path/to/godot"
       }
     }
   }
 }
 ```
 
-### Step 3: Optional Environment Variables
+#### Cursor 설정 (`.cursor/mcp.json`)
 
-You can customize the server behavior with these environment variables:
-
-- `GODOT_PATH`: Path to the Godot executable (overrides automatic detection)
-- `DEBUG`: Set to "true" to enable detailed server-side debug logging
-
-## Example Prompts
-
-Once configured, your AI assistant will automatically run the MCP server when needed. You can use prompts like:
-
-```text
-"Launch the Godot editor for my project at /path/to/project"
-
-"Run my Godot project and show me any errors"
-
-"Get information about my Godot project structure"
-
-"Analyze my Godot project structure and suggest improvements"
-
-"Help me debug this error in my Godot project: [paste error]"
-
-"Write a GDScript for a character controller with double jump and wall sliding"
-
-"Create a new scene with a Player node in my Godot project"
-
-"Add a Sprite2D node to my player scene and load the character texture"
-
-"Export my 3D models as a MeshLibrary for use with GridMap"
-
-"Create a UI scene with buttons and labels for my game's main menu"
-
-"Get the UID for a specific script file in my Godot 4.4 project"
-
-"Update UID references in my Godot project after upgrading to 4.4"
+```json
+{
+  "mcpServers": {
+    "godot": {
+      "command": "node",
+      "args": ["/absolute/path/to/godot-mcp-omni/build/index.js"]
+    }
+  }
+}
 ```
 
-## Implementation Details
+---
 
-### Architecture
+## 🛠️ MCP 도구 레퍼런스
 
-The Godot MCP server uses a bundled GDScript approach for complex operations:
+### 프로젝트 관리
 
-1. **Direct Commands**: Simple operations like launching the editor or getting project info use Godot's built-in CLI commands directly.
-2. **Bundled Operations Script**: Complex operations like creating scenes or adding nodes use a single, comprehensive GDScript file (`godot_operations.gd`) that handles all operations.
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|---------------|
+| `list_projects` | 디렉토리에서 Godot 프로젝트 검색 | `directory`, `recursive` |
+| `get_project_info` | 프로젝트 구조 분석 | `projectPath` |
+| `get_godot_version` | Godot 버전 조회 | - |
+| `launch_editor` | Godot 에디터 실행 | `projectPath`, `token?`, `port?` |
+| `run_project` | 프로젝트 디버그 모드 실행 | `projectPath`, `scene?` |
+| `stop_project` | 실행 중인 프로젝트 중지 | - |
+| `get_debug_output` | 디버그 출력 조회 | - |
 
-This architecture provides several benefits:
+### Scene 관리
 
-- **No Temporary Files**: Eliminates the need for temporary script files, keeping your system clean
-- **Simplified Codebase**: Centralizes all Godot operations in one (somewhat) organized file
-- **Better Maintainability**: Makes it easier to add new operations or modify existing ones
-- **Improved Error Handling**: Provides consistent error reporting across all operations
-- **Reduced Overhead**: Minimizes file I/O operations for better performance
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|---------------|
+| `create_scene` | 새 Scene 생성 | `projectPath`, `scenePath`, `rootNodeType?` |
+| `add_node` | Scene에 노드 추가 | `projectPath`, `scenePath`, `nodeType`, `nodeName`, `parentNodePath?`, `properties?` |
+| `save_scene` | Scene 저장 | `projectPath`, `scenePath`, `newPath?` |
+| `load_sprite` | Sprite에 텍스처 로드 | `projectPath`, `scenePath`, `nodePath`, `texturePath` |
+| `export_mesh_library` | 3D Scene → MeshLibrary 익스포트 | `projectPath`, `scenePath`, `outputPath` |
 
-The bundled script accepts operation type and parameters as JSON, allowing for flexible and dynamic operation execution without generating temporary files for each operation.
+### Headless 작업
 
-## Troubleshooting
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|---------------|
+| `godot_headless_op` | 범용 headless 작업 실행 | `projectPath`, `operation`, `params` |
+| `godot_import_project_assets` | 프로젝트 에셋 임포트 (headless) | `projectPath`, `godotPath?` |
 
-- **Godot Not Found**: Set the GODOT_PATH environment variable to your Godot executable
-- **Connection Issues**: Ensure the server is running and restart your AI assistant
-- **Invalid Project Path**: Ensure the path points to a directory containing a project.godot file
-- **Build Issues**: Make sure all dependencies are installed by running `npm install`
-- **For Cursor Specifically**:
--   Ensure the MCP server shows up and is enabled in Cursor settings (Settings > MCP)
--   MCP tools can only be run using the Agent chat profile (Cursor Pro or Business subscription)
--   Use "Yolo Mode" to automatically run MCP tool requests
+### UID 관리 (Godot 4.4+)
 
-## License
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|---------------|
+| `get_uid` | 파일의 UID 조회 | `projectPath`, `filePath` |
+| `update_project_uids` | 프로젝트 전체 UID 갱신 | `projectPath` |
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### 에디터 브릿지 (실시간 제어)
 
-[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/coding-solo-godot-mcp-badge.png)](https://mseep.ai/app/coding-solo-godot-mcp)
+| 도구 | 설명 | 주요 파라미터 |
+|------|------|---------------|
+| `godot_sync_addon` | MCP 브릿지 애드온 동기화 | `projectPath`, `enablePlugin?` |
+| `godot_connect_editor` | 에디터 브릿지 연결 | `projectPath`, `token?`, `host?`, `port?`, `timeoutMs?` |
+| `godot_rpc` | 에디터에 RPC 요청 전송 | `request_json`, `timeoutMs?` |
+| `godot_inspect` | 클래스/노드/인스턴스 검사 | `query_json`, `timeoutMs?` |
+
+---
+
+## 🔧 환경 변수
+
+| 변수 | 설명 | 기본값 |
+|------|------|--------|
+| `GODOT_PATH` | Godot 실행 파일 경로 | 자동 탐지 |
+| `GODOT_MCP_TOKEN` | 에디터 브릿지 인증 토큰 | - |
+| `GODOT_MCP_PORT` | 에디터 브릿지 포트 | `8765` |
+| `GODOT_MCP_HOST` | 에디터 브릿지 호스트 | `127.0.0.1` |
+| `ALLOW_DANGEROUS_OPS` | 위험한 작업 허용 여부 | `false` |
+| `DEBUG` | 디버그 로깅 활성화 | `false` |
+
+---
+
+## 📋 사용 예시
+
+### Scene 생성 및 노드 추가
+
+```text
+"MyGame 프로젝트에 Player.tscn 씬을 만들고 CharacterBody2D를 루트로 설정해줘"
+"Player 씬에 Sprite2D 노드를 추가하고 player.png 텍스처를 로드해줘"
+```
+
+### 프로젝트 분석
+
+```text
+"MyGame 프로젝트 구조를 분석해서 개선점을 알려줘"
+"현재 씬 수와 스크립트 수를 확인해줘"
+```
+
+### 에디터 제어
+
+```text
+"Godot 에디터를 실행하고 연결해줘"
+"현재 열린 씬의 노드 구조를 보여줘"
+```
+
+### Headless CI/CD
+
+```text
+"프로젝트 에셋을 headless 모드로 임포트해줘"
+"MeshLibrary.tres로 3D 메시를 익스포트해줘"
+```
+
+---
+
+## 🔍 트러블슈팅
+
+### 에디터 연결 실패
+
+`godot_connect_editor` 실패 시 상세 진단 정보가 반환됩니다:
+
+```json
+{
+  "ok": false,
+  "summary": "Failed to connect editor bridge: ...",
+  "details": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "timeoutMs": 30000,
+    "tokenSource": "env",
+    "lockFileExists": false,
+    "lastError": { "code": "ECONNREFUSED" },
+    "suggestions": [
+      "Confirm the editor is running and the plugin is enabled",
+      "Check that the port is reachable"
+    ]
+  }
+}
+```
+
+**해결 방법:**
+1. Project Settings → Plugins에서 **Godot MCP Bridge** 활성화
+2. `GODOT_MCP_TOKEN` 환경변수 또는 `.godot_mcp_token` 파일 확인
+3. 방화벽에서 포트 허용
+
+### SVG 로딩 실패
+
+Headless 모드에서 SVG 로딩 실패 시:
+
+```json
+{
+  "ok": false,
+  "details": {
+    "loader_path": "svg_from_string",
+    "svg_loader_available": true,
+    "suggestions": [
+      "Prefer PNG textures for headless flows.",
+      "Run an import step first or open the project once in the editor."
+    ]
+  }
+}
+```
+
+**권장:** Headless 워크플로우에서는 PNG 사용
+
+---
+
+## 📁 프로젝트 구조
+
+```
+godot-mcp-omni/
+├── src/
+│   ├── server.ts           # MCP 서버 메인
+│   ├── tools/
+│   │   ├── editor.ts       # 에디터 브릿지 도구
+│   │   ├── project.ts      # 프로젝트 관리 도구
+│   │   ├── headless.ts     # Headless 작업 도구
+│   │   └── types.ts        # 타입 정의
+│   ├── scripts/
+│   │   └── godot_operations.gd  # Godot 작업 스크립트
+│   └── validation.ts       # 입력 검증
+├── addons/
+│   └── godot_mcp_bridge/   # Godot 에디터 플러그인
+├── test/                   # 단위 테스트
+└── scripts/
+    └── verify_mcp.js       # E2E 검증 스크립트
+```
+
+---
+
+## 📄 라이선스
+
+MIT License - [LICENSE](LICENSE) 참조
+
+---
+
+## 🙏 크레딧
+
+- 원본 프로젝트: [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp)

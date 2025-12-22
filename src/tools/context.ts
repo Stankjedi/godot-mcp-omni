@@ -7,7 +7,7 @@ export interface ServerContext {
   assertValidProject: (projectPath: string) => void;
   ensureNoTraversal: (p: string) => void;
   ensureGodotPath: (customGodotPath?: string) => Promise<string>;
-  convertCamelToSnakeCase: (params: any) => any;
+  convertCamelToSnakeCase: (params: unknown) => unknown;
   operationsScriptPath: string;
 
   getActiveProcess: () => GodotProcess | null;
@@ -17,5 +17,7 @@ export interface ServerContext {
   setEditorClient: (client: EditorBridgeClient | null) => void;
   getEditorProjectPath: () => string | null;
   setEditorProjectPath: (projectPath: string | null) => void;
-}
 
+  getEditorLaunchInfo: () => { projectPath: string; ts: number } | null;
+  setEditorLaunchInfo: (info: { projectPath: string; ts: number } | null) => void;
+}

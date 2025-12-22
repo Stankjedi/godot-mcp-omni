@@ -1,11 +1,26 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { existsSync, readdirSync, readFileSync } from 'fs';
+import fs from 'fs/promises';
 import { spawn } from 'child_process';
 
-import { execGodot } from '../godot_cli.js';
+import { execGodot, normalizeGodotArgsForHost } from '../godot_cli.js';
+import {
+  ValidationError,
+  asNonEmptyString,
+  asOptionalBoolean,
+  asOptionalNonEmptyString,
+  asOptionalPositiveNumber,
+  asRecord,
+  asOptionalString,
+} from '../validation.js';
 
 import type { ServerContext } from './context.js';
 import type { GodotProcess, ToolHandler, ToolResponse } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 function findGodotProjects(directory: string, recursive: boolean, logDebug: (message: string) => void): { path: string; name: string }[] {
   const projects: { path: string; name: string }[] = [];
@@ -72,27 +87,142 @@ function splitLines(text: string): string[] {
     .filter((l) => l.trim().length > 0);
 }
 
+function collectLogs(stdout: string, stderr: string, limit = 200): string[] {
+  const logs = [...splitLines(stdout), ...splitLines(stderr)];
+  return logs.length > limit ? logs.slice(0, limit) : logs;
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n/gu, '\n');
+}
+
+function serializePackedStringArray(values: string[]): string {
+  const uniq = Array.from(new Set(values)).filter(Boolean);
+  const quoted = uniq.map((v) => `"${String(v).replaceAll('"', '\\"')}"`).join(', ');
+  return `PackedStringArray(${quoted})`;
+}
+
+export function ensureEditorPluginEnabled(projectGodotText: string, pluginId: string): string {
+  const lines = normalizeNewlines(projectGodotText).split('\n');
+
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].trim() === '[editor_plugins]') {
+      sectionStart = i;
+      break;
+    }
+  }
+
+  if (sectionStart === -1) {
+    const out = [...lines];
+    if (out.length && out[out.length - 1].trim() !== '') out.push('');
+    out.push('[editor_plugins]');
+    out.push(`enabled=${serializePackedStringArray([pluginId])}`);
+    out.push('');
+    return out.join('\n');
+  }
+
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i += 1) {
+    if (/^\s*\[[^\]]+\]\s*$/u.test(lines[i])) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  let enabledLineIndex = -1;
+  for (let i = sectionStart + 1; i < sectionEnd; i += 1) {
+    if (lines[i].trim().startsWith('enabled=')) {
+      enabledLineIndex = i;
+      break;
+    }
+  }
+
+  if (enabledLineIndex === -1) {
+    const out = [...lines];
+    out.splice(sectionEnd, 0, `enabled=${serializePackedStringArray([pluginId])}`);
+    return out.join('\n');
+  }
+
+  const enabledLine = lines[enabledLineIndex];
+  const matches = Array.from(enabledLine.matchAll(/"([^"]*)"/gu)).map((m) => m[1]);
+  const next = matches.includes(pluginId) ? matches : [...matches, pluginId];
+
+  const out = [...lines];
+  out[enabledLineIndex] = `enabled=${serializePackedStringArray(next)}`;
+  return out.join('\n');
+}
+
 export function createProjectToolHandlers(ctx: ServerContext): Record<string, ToolHandler> {
   return {
-    launch_editor: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath) {
-        return {
-          ok: false,
-          summary: 'projectPath is required',
-          details: { suggestions: ['Provide a Godot project directory'] },
-        };
+    launch_editor: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
+      const godotPathArg = normalizeOptionalString(asOptionalString(argsObj.godotPath, 'godotPath'));
+      const tokenRaw = asOptionalString(argsObj.token, 'token');
+      const port = asOptionalPositiveNumber(argsObj.port, 'port');
+      if (port !== undefined && !Number.isInteger(port)) {
+        throw new ValidationError('port', 'Invalid field "port": expected integer', 'number');
       }
+      const token = tokenRaw && tokenRaw.trim().length > 0 ? tokenRaw.trim() : undefined;
 
       try {
-        ctx.assertValidProject(args.projectPath);
-        const godotPath = await ctx.ensureGodotPath(args.godotPath);
-        spawn(godotPath, ['-e', '--path', args.projectPath], {
+        ctx.assertValidProject(projectPath);
+        const godotPath = await ctx.ensureGodotPath(godotPathArg);
+
+        const shouldWriteBridgeConfig =
+          process.platform !== 'win32' && godotPath.trim().toLowerCase().endsWith('.exe');
+        if (shouldWriteBridgeConfig) {
+          const envPortRaw = process.env.GODOT_MCP_PORT?.trim() ?? '';
+          const envPort = envPortRaw ? Number.parseInt(envPortRaw, 10) : NaN;
+          const portToWrite = typeof port === 'number' ? port : Number.isInteger(envPort) ? envPort : undefined;
+          if (typeof portToWrite === 'number' && Number.isInteger(portToWrite) && portToWrite > 0) {
+            await fs.writeFile(path.join(projectPath, '.godot_mcp_port'), String(portToWrite), 'utf8');
+          }
+
+          try {
+            const route = readFileSync('/proc/net/route', 'utf8');
+            const lines = route.split(/\r?\n/u);
+            for (let i = 1; i < lines.length; i += 1) {
+              const line = lines[i]?.trim();
+              if (!line) continue;
+              const cols = line.split(/\s+/u);
+              if (cols.length < 3) continue;
+              if (cols[1] !== '00000000') continue;
+              const hex = cols[2];
+              if (!/^[0-9a-fA-F]+$/u.test(hex)) continue;
+              const num = (Number.parseInt(hex, 16) >>> 0) as number;
+              const gatewayIp = [num & 0xff, (num >>> 8) & 0xff, (num >>> 16) & 0xff, (num >>> 24) & 0xff].join('.');
+              if (gatewayIp !== '0.0.0.0') {
+                await fs.writeFile(path.join(projectPath, '.godot_mcp_host'), gatewayIp, 'utf8');
+                break;
+              }
+            }
+          } catch {
+            // Best-effort only; default stays 127.0.0.1.
+          }
+        }
+
+        spawn(godotPath, normalizeGodotArgsForHost(godotPath, ['-e', '--path', projectPath]), {
           stdio: 'ignore',
           detached: true,
           windowsHide: true,
+          env: {
+            ...process.env,
+            ...(token ? { GODOT_MCP_TOKEN: token } : {}),
+            ...(port ? { GODOT_MCP_PORT: String(port) } : {}),
+          },
         }).unref();
-        return { ok: true, summary: 'Godot editor launched', details: { projectPath: args.projectPath } };
+        ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
+        return { ok: true, summary: 'Godot editor launched', details: { projectPath } };
       } catch (error) {
+        if (error instanceof ValidationError) throw error;
         return {
           ok: false,
           summary: `Failed to launch editor: ${error instanceof Error ? error.message : String(error)}`,
@@ -103,18 +233,16 @@ export function createProjectToolHandlers(ctx: ServerContext): Record<string, To
       }
     },
 
-    run_project: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath) {
-        return {
-          ok: false,
-          summary: 'projectPath is required',
-          details: { suggestions: ['Provide a Godot project directory'] },
-        };
-      }
+    run_project: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
+      const godotPathArg = normalizeOptionalString(asOptionalString(argsObj.godotPath, 'godotPath'));
+      const sceneRaw = asOptionalNonEmptyString(argsObj.scene, 'scene');
+      const scene = sceneRaw ? sceneRaw.trim() : undefined;
 
       try {
-        ctx.assertValidProject(args.projectPath);
-        const godotPath = await ctx.ensureGodotPath(args.godotPath);
+        ctx.assertValidProject(projectPath);
+        const godotPath = await ctx.ensureGodotPath(godotPathArg);
 
         const existing = ctx.getActiveProcess();
         if (existing) {
@@ -122,13 +250,13 @@ export function createProjectToolHandlers(ctx: ServerContext): Record<string, To
           existing.process.kill();
         }
 
-        const cmdArgs = ['-d', '--path', args.projectPath];
-        if (typeof args.scene === 'string' && args.scene.length > 0) {
-          ctx.ensureNoTraversal(args.scene);
-          cmdArgs.push(args.scene);
+        const cmdArgs = ['-d', '--path', projectPath];
+        if (scene) {
+          ctx.ensureNoTraversal(scene);
+          cmdArgs.push(scene);
         }
 
-        const proc = spawn(godotPath, cmdArgs, { stdio: 'pipe', windowsHide: true });
+        const proc = spawn(godotPath, normalizeGodotArgsForHost(godotPath, cmdArgs), { stdio: 'pipe', windowsHide: true });
         const output: string[] = [];
         const errors: string[] = [];
 
@@ -144,10 +272,11 @@ export function createProjectToolHandlers(ctx: ServerContext): Record<string, To
           if (current && current.process === proc) ctx.setActiveProcess(null);
         });
 
-        const state: GodotProcess = { process: proc, output, errors, projectPath: args.projectPath };
+        const state: GodotProcess = { process: proc, output, errors, projectPath };
         ctx.setActiveProcess(state);
-        return { ok: true, summary: 'Godot project started (debug mode)', details: { projectPath: args.projectPath } };
+        return { ok: true, summary: 'Godot project started (debug mode)', details: { projectPath } };
       } catch (error) {
+        if (error instanceof ValidationError) throw error;
         return {
           ok: false,
           summary: `Failed to run project: ${error instanceof Error ? error.message : String(error)}`,
@@ -202,32 +331,133 @@ export function createProjectToolHandlers(ctx: ServerContext): Record<string, To
       }
     },
 
-    list_projects: async (args: any): Promise<ToolResponse> => {
-      if (!args.directory) return { ok: false, summary: 'directory is required' };
+    godot_sync_addon: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
+      const enablePlugin = asOptionalBoolean(argsObj.enablePlugin, 'enablePlugin') ?? true;
 
       try {
-        ctx.ensureNoTraversal(args.directory);
-        if (!existsSync(args.directory)) {
-          return { ok: false, summary: `Directory does not exist: ${args.directory}` };
+        ctx.assertValidProject(projectPath);
+
+        const srcAddon = path.join(REPO_ROOT, 'addons', 'godot_mcp_bridge');
+        const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');
+        const projectGodotPath = path.join(projectPath, 'project.godot');
+        const lockPath = path.join(projectPath, '.godot_mcp', 'bridge.lock');
+
+        if (existsSync(lockPath)) {
+          return {
+            ok: false,
+            summary: 'Editor bridge appears to be running; close the editor before syncing the addon.',
+            details: { lockPath },
+          };
         }
-        const recursive = args.recursive === true;
-        const projects = findGodotProjects(args.directory, recursive, (m) => ctx.logDebug(m));
+
+        const logs: string[] = [];
+        logs.push(`Copying addon: ${srcAddon} -> ${dstAddon}`);
+        await fs.mkdir(path.dirname(dstAddon), { recursive: true });
+        await fs.cp(srcAddon, dstAddon, { recursive: true, force: true });
+
+        let pluginUpdated = false;
+        if (enablePlugin) {
+          logs.push('Ensuring editor plugin enabled: godot_mcp_bridge');
+          const before = await fs.readFile(projectGodotPath, 'utf8');
+          const after = ensureEditorPluginEnabled(before, 'godot_mcp_bridge');
+          if (after !== normalizeNewlines(before)) {
+            await fs.writeFile(projectGodotPath, after, 'utf8');
+            pluginUpdated = true;
+          }
+        }
+
+        return {
+          ok: true,
+          summary: 'Addon synced to project.',
+          details: {
+            projectPath,
+            addonPath: dstAddon,
+            projectGodotPath,
+            enablePlugin,
+            pluginUpdated,
+          },
+          logs,
+        };
+      } catch (error) {
+        if (error instanceof ValidationError) throw error;
+        return { ok: false, summary: `Failed to sync addon: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
+
+    godot_import_project_assets: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
+      const godotPathArg = normalizeOptionalString(asOptionalString(argsObj.godotPath, 'godotPath'));
+
+      try {
+        ctx.assertValidProject(projectPath);
+        const godotPath = await ctx.ensureGodotPath(godotPathArg);
+        const { stdout, stderr, exitCode } = await execGodot(godotPath, ['--headless', '--path', projectPath, '--import']);
+        const logs = collectLogs(stdout, stderr);
+        if (exitCode !== 0) {
+          return {
+            ok: false,
+            summary: 'Project import failed',
+            details: {
+              projectPath,
+              exitCode,
+              suggestions: [
+                'Verify your Godot version supports the --import flag.',
+                'Open the project once in the editor to trigger imports, then retry.',
+                'Ensure GODOT_PATH points to a valid Godot executable.',
+              ],
+            },
+            logs,
+          };
+        }
+        return { ok: true, summary: 'Project import completed', details: { projectPath }, logs };
+      } catch (error) {
+        if (error instanceof ValidationError) throw error;
+        return {
+          ok: false,
+          summary: `Failed to import project assets: ${error instanceof Error ? error.message : String(error)}`,
+          details: {
+            projectPath,
+            suggestions: [
+              'Ensure the project path is valid and accessible.',
+              'Check GODOT_PATH or pass godotPath explicitly.',
+            ],
+          },
+        };
+      }
+    },
+
+    list_projects: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const directory = asNonEmptyString(argsObj.directory, 'directory');
+      const recursive = asOptionalBoolean(argsObj.recursive, 'recursive') ?? false;
+
+      try {
+        ctx.ensureNoTraversal(directory);
+        if (!existsSync(directory)) {
+          return { ok: false, summary: `Directory does not exist: ${directory}` };
+        }
+        const projects = findGodotProjects(directory, recursive, (m) => ctx.logDebug(m));
         return { ok: true, summary: `Found ${projects.length} project(s)`, details: { projects } };
       } catch (error) {
+        if (error instanceof ValidationError) throw error;
         return { ok: false, summary: `Failed to list projects: ${error instanceof Error ? error.message : String(error)}` };
       }
     },
 
-    get_project_info: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath) return { ok: false, summary: 'projectPath is required' };
+    get_project_info: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
 
       try {
-        ctx.assertValidProject(args.projectPath);
+        ctx.assertValidProject(projectPath);
         const godotPath = await ctx.ensureGodotPath();
         const { stdout: versionStdout } = await execGodot(godotPath, ['--version']);
 
-        const projectFile = path.join(args.projectPath, 'project.godot');
-        let projectName = path.basename(args.projectPath);
+        const projectFile = path.join(projectPath, 'project.godot');
+        let projectName = path.basename(projectPath);
         try {
           const contents = readFileSync(projectFile, 'utf8');
           const match = contents.match(/config\/name="([^"]+)"/u);
@@ -236,18 +466,19 @@ export function createProjectToolHandlers(ctx: ServerContext): Record<string, To
           // ignore
         }
 
-        const structure = await getProjectStructureCounts(args.projectPath, (m) => ctx.logDebug(m));
+        const structure = await getProjectStructureCounts(projectPath, (m) => ctx.logDebug(m));
         return {
           ok: true,
           summary: 'Project info',
           details: {
             name: projectName,
-            path: args.projectPath,
+            path: projectPath,
             godotVersion: versionStdout.trim(),
             structure,
           },
         };
       } catch (error) {
+        if (error instanceof ValidationError) throw error;
         return { ok: false, summary: `Failed to get project info: ${error instanceof Error ? error.message : String(error)}` };
       }
     },

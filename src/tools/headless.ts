@@ -5,7 +5,12 @@ import { executeHeadlessOperation } from '../headless_ops.js';
 import { execGodot } from '../godot_cli.js';
 import { resolveInsideProject } from '../security.js';
 import { assertDangerousOpsAllowed } from '../security.js';
-import { asNonEmptyString, asOptionalRecordOrJson } from '../validation.js';
+import {
+  asNonEmptyString,
+  asOptionalRecordOrJson,
+  asOptionalString,
+  asRecord,
+} from '../validation.js';
 
 import type { ServerContext } from './context.js';
 import type { ToolHandler, ToolResponse } from './types.js';
@@ -134,25 +139,30 @@ async function runHeadlessOp(
 
 export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, ToolHandler> {
   return {
-    godot_headless_op: async (args: any): Promise<ToolResponse> => {
-      const projectPath = asNonEmptyString(args.projectPath, 'projectPath');
-      const operation = asNonEmptyString(args.operation, 'operation');
-      const params = asOptionalRecordOrJson(args.params, 'params', {});
+    godot_headless_op: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
+      const operation = asNonEmptyString(argsObj.operation, 'operation');
+      const params = asOptionalRecordOrJson(argsObj.params, 'params', {});
       return await runHeadlessOp(ctx, operation, params, projectPath);
     },
 
-    create_scene: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.scenePath) {
+    create_scene: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
+      const rootNodeType = asOptionalString(argsObj.rootNodeType, 'rootNodeType');
+      if (!projectPath || !scenePath) {
         return { ok: false, summary: 'projectPath and scenePath are required' };
       }
 
       try {
-        const absScene = resolveInsideProject(args.projectPath, args.scenePath);
+        const absScene = resolveInsideProject(projectPath, scenePath);
         const res = await runHeadlessOp(
           ctx,
           'create_scene',
-          { scenePath: args.scenePath, rootNodeType: args.rootNodeType ?? 'Node2D' },
-          args.projectPath
+          { scenePath, rootNodeType: rootNodeType ?? 'Node2D' },
+          projectPath
         );
         if (!res.ok) {
           res.details = {
@@ -169,8 +179,14 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    add_node: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.scenePath || !args.nodeType || !args.nodeName) {
+    add_node: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
+      const nodeType = asOptionalString(argsObj.nodeType, 'nodeType');
+      const nodeName = asOptionalString(argsObj.nodeName, 'nodeName');
+      const parentNodePath = asOptionalString(argsObj.parentNodePath, 'parentNodePath');
+      if (!projectPath || !scenePath || !nodeType || !nodeName) {
         return {
           ok: false,
           summary: 'projectPath, scenePath, nodeType, nodeName are required',
@@ -178,11 +194,11 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
 
       try {
-        const absScene = resolveInsideProject(args.projectPath, args.scenePath);
+        const absScene = resolveInsideProject(projectPath, scenePath);
         if (!existsSync(absScene)) {
           return {
             ok: false,
-            summary: `Scene file does not exist: ${args.scenePath}`,
+            summary: `Scene file does not exist: ${scenePath}`,
             details: {
               suggestions: ['Run create_scene first', `Expected path: ${absScene}`],
             },
@@ -190,14 +206,14 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
         }
 
         const params: Record<string, unknown> = {
-          scenePath: args.scenePath,
-          parentNodePath: args.parentNodePath ?? 'root',
-          nodeType: args.nodeType,
-          nodeName: args.nodeName,
+          scenePath,
+          parentNodePath: parentNodePath ?? 'root',
+          nodeType,
+          nodeName,
         };
-        if (args.properties) params.properties = args.properties;
+        if (argsObj.properties) params.properties = argsObj.properties;
 
-        return await runHeadlessOp(ctx, 'add_node', params, args.projectPath);
+        return await runHeadlessOp(ctx, 'add_node', params, projectPath);
       } catch (error) {
         return {
           ok: false,
@@ -206,8 +222,13 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    load_sprite: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.scenePath || !args.nodePath || !args.texturePath) {
+    load_sprite: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
+      const nodePath = asOptionalString(argsObj.nodePath, 'nodePath');
+      const texturePath = asOptionalString(argsObj.texturePath, 'texturePath');
+      if (!projectPath || !scenePath || !nodePath || !texturePath) {
         return {
           ok: false,
           summary: 'projectPath, scenePath, nodePath, texturePath are required',
@@ -218,8 +239,8 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
         return await runHeadlessOp(
           ctx,
           'load_sprite',
-          { scenePath: args.scenePath, nodePath: args.nodePath, texturePath: args.texturePath },
-          args.projectPath
+          { scenePath, nodePath, texturePath },
+          projectPath
         );
       } catch (error) {
         return {
@@ -229,15 +250,19 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    export_mesh_library: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.scenePath || !args.outputPath) {
+    export_mesh_library: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
+      const outputPath = asOptionalString(argsObj.outputPath, 'outputPath');
+      if (!projectPath || !scenePath || !outputPath) {
         return { ok: false, summary: 'projectPath, scenePath, outputPath are required' };
       }
 
       try {
-        const params: Record<string, unknown> = { scenePath: args.scenePath, outputPath: args.outputPath };
-        if (args.meshItemNames) params.meshItemNames = args.meshItemNames;
-        return await runHeadlessOp(ctx, 'export_mesh_library', params, args.projectPath);
+        const params: Record<string, unknown> = { scenePath, outputPath };
+        if (argsObj.meshItemNames) params.meshItemNames = argsObj.meshItemNames;
+        return await runHeadlessOp(ctx, 'export_mesh_library', params, projectPath);
       } catch (error) {
         return {
           ok: false,
@@ -246,15 +271,19 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    save_scene: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.scenePath) {
+    save_scene: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
+      const newPath = asOptionalString(argsObj.newPath, 'newPath');
+      if (!projectPath || !scenePath) {
         return { ok: false, summary: 'projectPath and scenePath are required' };
       }
 
       try {
-        const params: Record<string, unknown> = { scenePath: args.scenePath };
-        if (args.newPath) params.newPath = args.newPath;
-        return await runHeadlessOp(ctx, 'save_scene', params, args.projectPath);
+        const params: Record<string, unknown> = { scenePath };
+        if (newPath) params.newPath = newPath;
+        return await runHeadlessOp(ctx, 'save_scene', params, projectPath);
       } catch (error) {
         return {
           ok: false,
@@ -263,14 +292,17 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    get_uid: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath || !args.filePath) {
+    get_uid: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      const filePath = asOptionalString(argsObj.filePath, 'filePath');
+      if (!projectPath || !filePath) {
         return { ok: false, summary: 'projectPath and filePath are required' };
       }
 
       try {
-        ctx.assertValidProject(args.projectPath);
-        resolveInsideProject(args.projectPath, args.filePath);
+        ctx.assertValidProject(projectPath);
+        resolveInsideProject(projectPath, filePath);
 
         const godotPath = await ctx.ensureGodotPath();
         const { stdout: versionStdout } = await execGodot(godotPath, ['--version']);
@@ -279,7 +311,7 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
           return { ok: false, summary: `UIDs require Godot 4.4+. Current: ${version}` };
         }
 
-        return await runHeadlessOp(ctx, 'get_uid', { filePath: args.filePath }, args.projectPath);
+        return await runHeadlessOp(ctx, 'get_uid', { filePath }, projectPath);
       } catch (error) {
         return {
           ok: false,
@@ -288,11 +320,13 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
       }
     },
 
-    update_project_uids: async (args: any): Promise<ToolResponse> => {
-      if (!args.projectPath) return { ok: false, summary: 'projectPath is required' };
+    update_project_uids: async (args: unknown): Promise<ToolResponse> => {
+      const argsObj = asRecord(args, 'args');
+      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
+      if (!projectPath) return { ok: false, summary: 'projectPath is required' };
 
       try {
-        ctx.assertValidProject(args.projectPath);
+        ctx.assertValidProject(projectPath);
 
         const godotPath = await ctx.ensureGodotPath();
         const { stdout: versionStdout } = await execGodot(godotPath, ['--version']);
@@ -304,8 +338,8 @@ export function createHeadlessToolHandlers(ctx: ServerContext): Record<string, T
         return await runHeadlessOp(
           ctx,
           'resave_resources',
-          { projectPath: args.projectPath },
-          args.projectPath
+          { projectPath },
+          projectPath
         );
       } catch (error) {
         return {

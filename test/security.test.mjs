@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { appendAuditLog, assertDangerousOpsAllowed, resolveInsideProject } from '../build/security.js';
+import {
+  appendAuditLog,
+  assertDangerousOpsAllowed,
+  redactSecrets,
+  resolveInsideProject,
+} from '../build/security.js';
 
 function mkdtemp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -88,3 +93,24 @@ test('appendAuditLog creates and rotates audit log', () => {
   }
 });
 
+test('redactSecrets masks common sensitive keys but avoids false positives', () => {
+  const input = {
+    password: 'x',
+    apiKey: 'y',
+    access_token: 't1',
+    refreshToken: 't2',
+    secret_key: 't3',
+    nested: { client_secret: 'z' },
+    monkey: 'ok',
+  };
+
+  const output = redactSecrets(input);
+
+  assert.equal(output.password, '[REDACTED]');
+  assert.equal(output.apiKey, '[REDACTED]');
+  assert.equal(output.access_token, '[REDACTED]');
+  assert.equal(output.refreshToken, '[REDACTED]');
+  assert.equal(output.secret_key, '[REDACTED]');
+  assert.equal(output.nested.client_secret, '[REDACTED]');
+  assert.equal(output.monkey, 'ok');
+});

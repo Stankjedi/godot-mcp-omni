@@ -24,6 +24,10 @@ export interface BridgeResponse {
   error?: unknown;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 export class EditorBridgeClient {
   private socket: net.Socket | null = null;
   private buffer = '';
@@ -134,34 +138,35 @@ export class EditorBridgeClient {
       const line = rawLine.trim();
       if (!line) continue;
 
-      let msg: any;
+      let msg: unknown;
       try {
         msg = JSON.parse(line);
       } catch {
         continue;
       }
 
-      if (msg?.type === 'hello_ok') {
+      if (isRecord(msg) && msg.type === 'hello_ok') {
         const waiter = this.helloWaiter;
         if (waiter) {
           clearTimeout(waiter.timeout);
           this.helloWaiter = undefined;
-          waiter.resolve(msg as BridgeHelloOk);
+          const capabilities = isRecord(msg.capabilities) ? msg.capabilities : undefined;
+          waiter.resolve({ type: 'hello_ok', capabilities });
         }
         continue;
       }
 
-      if (msg?.type === 'hello_error') {
+      if (isRecord(msg) && msg.type === 'hello_error') {
         const waiter = this.helloWaiter;
         if (waiter) {
           clearTimeout(waiter.timeout);
           this.helloWaiter = undefined;
-          waiter.reject(new Error(String((msg as BridgeHelloError).error ?? 'hello_error')));
+          waiter.reject(new Error(String(msg.error ?? 'hello_error')));
         }
         continue;
       }
 
-      if (typeof msg?.id === 'number') {
+      if (isRecord(msg) && typeof msg.id === 'number') {
         const pending = this.pending.get(msg.id);
         if (!pending) continue;
         clearTimeout(pending.timeout);
@@ -209,4 +214,3 @@ export class EditorBridgeClient {
     this.pending.clear();
   }
 }
-

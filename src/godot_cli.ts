@@ -17,6 +17,45 @@ export interface ExecResult {
   exitCode: number;
 }
 
+function isWindowsGodotBinaryPath(p: string): boolean {
+  return p.trim().toLowerCase().endsWith('.exe');
+}
+
+function shouldTranslateWslPathsForGodot(godotPath: string): boolean {
+  // WSL (linux) running a Windows Godot executable expects Windows-style paths in args.
+  return process.platform !== 'win32' && isWindowsGodotBinaryPath(godotPath);
+}
+
+function wslPathToWindowsPath(p: string): string | undefined {
+  const trimmed = p.trim();
+  const match = trimmed.match(/^\/mnt\/([a-zA-Z])\/(.*)$/u);
+  if (!match) return undefined;
+  const drive = match[1].toUpperCase();
+  const rest = match[2].replaceAll('/', '\\');
+  return `${drive}:\\${rest}`;
+}
+
+function translateGodotArgValue(value: string): string {
+  if (!value) return value;
+  if (value.startsWith('res://') || value.startsWith('user://')) return value;
+  return wslPathToWindowsPath(value) ?? value;
+}
+
+export function normalizeGodotArgsForHost(godotPath: string, args: string[]): string[] {
+  if (!shouldTranslateWslPathsForGodot(godotPath)) return args;
+
+  const out = [...args];
+  for (let i = 0; i < out.length; i += 1) {
+    const flag = out[i];
+    if ((flag === '--path' || flag === '--script') && i + 1 < out.length) {
+      out[i + 1] = translateGodotArgValue(out[i + 1]);
+      i += 1;
+    }
+  }
+
+  return out;
+}
+
 export interface GodotPathDetectionAttempt {
   origin: string;
   candidate: string;
@@ -153,20 +192,27 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
 
   if (cwd) {
     if (osPlatform === 'win32') {
-      const exePattern = /^Godot_v.*_win(64|32)(_console)?\.exe$/iu;
-      for (const p of discoverExecutables(join(cwd, '.tmp', 'godot'), exePattern, 1)) {
-        pushCandidate('auto:cwd:.tmp', p);
-      }
-      for (const p of discoverExecutables(join(cwd, '.tools', 'godot'), exePattern, 2)) {
-        pushCandidate('auto:cwd:.tools', p);
+      const exePatterns = [/^Godot_v.*_win(64|32)(_console)?\.exe$/iu, /^Godot(_console)?\.exe$/iu];
+      for (const pattern of exePatterns) {
+        for (const p of discoverExecutables(join(cwd, '.tmp', 'godot'), pattern, 1)) {
+          pushCandidate('auto:cwd:.tmp', p);
+        }
+        for (const p of discoverExecutables(join(cwd, '.tools', 'godot'), pattern, 2)) {
+          pushCandidate('auto:cwd:.tools', p);
+        }
       }
     } else if (osPlatform === 'linux') {
-      const binPattern = /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)$/iu;
-      for (const p of discoverExecutables(join(cwd, '.tmp', 'godot'), binPattern, 1)) {
-        pushCandidate('auto:cwd:.tmp', p);
-      }
-      for (const p of discoverExecutables(join(cwd, '.tools', 'godot'), binPattern, 2)) {
-        pushCandidate('auto:cwd:.tools', p);
+      const binPatterns = [
+        /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
+        /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
+      ];
+      for (const pattern of binPatterns) {
+        for (const p of discoverExecutables(join(cwd, '.tmp', 'godot'), pattern, 1)) {
+          pushCandidate('auto:cwd:.tmp', p);
+        }
+        for (const p of discoverExecutables(join(cwd, '.tools', 'godot'), pattern, 2)) {
+          pushCandidate('auto:cwd:.tools', p);
+        }
       }
     }
   }
@@ -190,12 +236,18 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
     pushCandidate('auto:platform', 'C:\\Program Files (x86)\\Godot_4\\Godot.exe');
 
     const userProfile = process.env.USERPROFILE ?? '';
+    const localAppData = process.env.LOCALAPPDATA ?? '';
     if (userProfile) {
       pushCandidate('auto:user', `${userProfile}\\Godot\\Godot.exe`);
       pushCandidate('auto:user', `${userProfile}\\AppData\\Local\\Programs\\Godot\\Godot.exe`);
+      pushCandidate('auto:user', `${userProfile}\\AppData\\Local\\Programs\\Godot Engine\\Godot.exe`);
       pushCandidate('auto:user', `${userProfile}\\AppData\\Local\\Godot\\Godot.exe`);
+      pushCandidate('auto:user', `${userProfile}\\AppData\\Local\\Godot Engine\\Godot.exe`);
 
-      const portableExePattern = /^Godot_v.*_win(64|32)(_console)?\.exe$/iu;
+      const portableExePatterns = [
+        /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
+        /^Godot.*(_console)?\.exe$/iu,
+      ];
       const portableDirs = [
         join(userProfile, 'Downloads'),
         join(userProfile, 'Desktop'),
@@ -203,10 +255,18 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
         join(userProfile, 'Godot'),
       ];
       for (const dir of portableDirs) {
-        for (const p of discoverExecutables(dir, portableExePattern, 0)) {
-          pushCandidate('auto:portable', p);
+        for (const pattern of portableExePatterns) {
+          for (const p of discoverExecutables(dir, pattern, 1)) {
+            pushCandidate('auto:portable', p);
+          }
         }
       }
+    }
+    if (localAppData) {
+      pushCandidate('auto:user', `${localAppData}\\Programs\\Godot\\Godot.exe`);
+      pushCandidate('auto:user', `${localAppData}\\Programs\\Godot Engine\\Godot.exe`);
+      pushCandidate('auto:user', `${localAppData}\\Godot\\Godot.exe`);
+      pushCandidate('auto:user', `${localAppData}\\Godot Engine\\Godot.exe`);
     }
   } else if (osPlatform === 'linux') {
     pushCandidate('auto:platform', '/usr/bin/godot');
@@ -215,11 +275,21 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
     if (home) {
       pushCandidate('auto:platform', `${home}/.local/bin/godot`);
 
-      const portableBinPattern = /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)$/iu;
-      const portableDirs = [join(home, 'Downloads'), join(home, 'godot')];
+      const portableBinPatterns = [
+        /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
+        /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
+      ];
+      const portableDirs = [
+        join(home, 'Downloads'),
+        join(home, 'Desktop'),
+        join(home, 'godot'),
+        join(home, '.local', 'share', 'godot'),
+      ];
       for (const dir of portableDirs) {
-        for (const p of discoverExecutables(dir, portableBinPattern, 0)) {
-          pushCandidate('auto:portable', p);
+        for (const pattern of portableBinPatterns) {
+          for (const p of discoverExecutables(dir, pattern, 1)) {
+            pushCandidate('auto:portable', p);
+          }
         }
       }
     }
@@ -232,7 +302,7 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
 
   const message =
     `Could not find a valid Godot executable for ${osPlatform}. ` +
-    `Set the GODOT_PATH environment variable or pass a valid godotPath option.`;
+    `Set the GODOT_PATH environment variable (or pass a valid godotPath option) to continue.`;
 
   if (strict) throw new GodotPathDetectionError(message, attempted);
 
@@ -245,6 +315,7 @@ export async function detectGodotPath(options: GodotCliOptions = {}): Promise<st
 
 export async function execGodot(godotPath: string, args: string[]): Promise<ExecResult> {
   return await new Promise<ExecResult>((resolve) => {
+    const normalizedArgs = normalizeGodotArgsForHost(godotPath, args);
     let settled = false;
     const settle = (value: ExecResult) => {
       if (settled) return;
@@ -252,7 +323,7 @@ export async function execGodot(godotPath: string, args: string[]): Promise<Exec
       resolve(value);
     };
 
-    const child = execFile(godotPath, args, { windowsHide: true }, (error, stdout, stderr) => {
+    const child = execFile(godotPath, normalizedArgs, { windowsHide: true }, (error, stdout, stderr) => {
       const exitCode = error ? (typeof (error as any)?.code === 'number' ? ((error as any).code as number) : 1) : 0;
       settle({
         stdout: stdout ?? '',
@@ -267,4 +338,3 @@ export async function execGodot(godotPath: string, args: string[]): Promise<Exec
     });
   });
 }
-

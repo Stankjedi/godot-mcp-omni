@@ -4,7 +4,10 @@ Prereqs:
 
 - Godot 4.x installed (`GODOT_PATH` set if auto-detect fails)
 - In your target project, install the addon at `res://addons/godot_mcp_bridge/`
-- Enable the plugin once in the editor: **Project → Project Settings → Plugins → “Godot MCP Bridge” → Enable**
+  - Recommended: `npm run sync:addon -- --project /abs/path/to/project` (or set `GODOT_PROJECT_PATH`)
+- Enable the plugin once in the editor if needed: **Project → Project Settings → Plugins → “Godot MCP Bridge” → Enable**
+
+See `../README.md` for the full Quickstart flow and environment variable table.
 
 ## Automated demo script
 
@@ -110,7 +113,19 @@ Object (supports node paths and unique names like `%BatchNode`):
 
 Tool: `godot_inspect`
 
+## Troubleshooting editor connection
+
+If `godot_connect_editor` fails, inspect the `details` block:
+- `host`, `port`, `timeoutMs` to confirm the endpoint.
+- `tokenSource` to verify where the token came from.
+- `lockFileExists` to confirm the plugin has started inside the editor.
+- `lastError.code` (e.g., `ECONNREFUSED`) for quick root-cause hints.
+
+Typical fixes:
+- Enable **Godot MCP Bridge** in Project Settings → Plugins.
+- Ensure `GODOT_MCP_TOKEN` matches `.godot_mcp_token`.
+- Allow the port through local firewall and wait for editor startup/imports.
+
 ## Undo verification
 
 After steps 5–8, press **Ctrl/Cmd+Z once** in the editor: the node add + property change should revert together.
-

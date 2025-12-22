@@ -13,7 +13,7 @@ import {
 
 import { detectGodotPath, isValidGodotPath } from './godot_cli.js';
 import { appendAuditLog, redactSecrets } from './security.js';
-import { ValidationError } from './validation.js';
+import { ValidationError, hasTraversalSegment } from './validation.js';
 
 import { createEditorToolHandlers } from './tools/editor.js';
 import { createHeadlessToolHandlers } from './tools/headless.js';
@@ -24,6 +24,27 @@ import type { ServerContext } from './tools/context.js';
 import type { GodotProcess, ToolHandler, ToolResponse } from './tools/types.js';
 
 const DEBUG_MODE = process.env.DEBUG === 'true';
+
+type ToolDefinition = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+};
+
+type McpToolResponse = {
+  content: { type: 'text'; text: string }[];
+  isError: boolean;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getStringField(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return typeof field === 'string' ? field : undefined;
+}
 
 export interface GodotMcpOmniServerConfig {
   godotPath?: string;
@@ -40,7 +61,7 @@ function invalidArgs(tool: string, error: unknown): ToolResponse | null {
   };
 }
 
-function toMcpResponse(result: ToolResponse): any {
+function toMcpResponse(result: ToolResponse): McpToolResponse {
   return {
     content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
     isError: !result.ok,
@@ -116,7 +137,12 @@ const TOOL_DEFINITIONS = [
     description: 'Launch Godot editor for a specific project',
     inputSchema: {
       type: 'object',
-      properties: { projectPath: { type: 'string', description: 'Path to the Godot project directory' } },
+      properties: {
+        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
+        token: { type: 'string', description: 'Optional: editor bridge token override' },
+        port: { type: 'number', description: 'Optional: editor bridge port override' },
+      },
       required: ['projectPath'],
     },
   },
@@ -128,6 +154,7 @@ const TOOL_DEFINITIONS = [
       properties: {
         projectPath: { type: 'string', description: 'Path to the Godot project directory' },
         scene: { type: 'string', description: 'Optional: Specific scene to run' },
+        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
       },
       required: ['projectPath'],
     },
@@ -146,6 +173,30 @@ const TOOL_DEFINITIONS = [
     name: 'get_godot_version',
     description: 'Get the installed Godot version',
     inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'godot_sync_addon',
+    description: 'Sync the editor bridge addon into a Godot project and optionally enable the plugin',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+        enablePlugin: { type: 'boolean', description: 'Optional: enable editor plugin (default: true)' },
+      },
+      required: ['projectPath'],
+    },
+  },
+  {
+    name: 'godot_import_project_assets',
+    description: 'Run a headless import step for project assets (useful for SVG/UID workflows)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
+      },
+      required: ['projectPath'],
+    },
   },
   {
     name: 'list_projects',
@@ -271,6 +322,7 @@ export class GodotMcpOmniServer {
 
   private editorClient: EditorBridgeClient | null = null;
   private editorProjectPath: string | null = null;
+  private editorLaunchInfo: { projectPath: string; ts: number } | null = null;
   private toolHandlers: Record<string, ToolHandler> = {};
 
   private parameterMappings: Record<string, string> = {
@@ -325,7 +377,7 @@ export class GodotMcpOmniServer {
     if (DEBUG_MODE) console.debug(`[DEBUG] ${message}`);
   }
 
-  private normalizeParameters(params: any): any {
+  private normalizeParameters(params: unknown): unknown {
     if (!params || typeof params !== 'object') return params;
     if (Array.isArray(params)) return params.map((v) => this.normalizeParameters(v));
 
@@ -337,7 +389,7 @@ export class GodotMcpOmniServer {
     return result;
   }
 
-  private convertCamelToSnakeCase(params: any): any {
+  private convertCamelToSnakeCase(params: unknown): unknown {
     if (!params || typeof params !== 'object') return params;
     if (Array.isArray(params)) return params.map((v) => this.convertCamelToSnakeCase(v));
 
@@ -352,7 +404,8 @@ export class GodotMcpOmniServer {
   }
 
   private ensureNoTraversal(p: string): void {
-    if (!p || p.includes('..')) throw new Error('Invalid path (contains "..")');
+    if (!p || p.trim().length === 0) throw new Error('Invalid path (empty)');
+    if (hasTraversalSegment(p)) throw new Error('Invalid path (contains "..")');
   }
 
   private assertValidProject(projectPath: string): void {
@@ -408,6 +461,10 @@ export class GodotMcpOmniServer {
       setEditorProjectPath: (projectPath) => {
         this.editorProjectPath = projectPath;
       },
+      getEditorLaunchInfo: () => this.editorLaunchInfo,
+      setEditorLaunchInfo: (info) => {
+        this.editorLaunchInfo = info;
+      },
     };
 
     return {
@@ -419,7 +476,7 @@ export class GodotMcpOmniServer {
 
   private setupToolHandlers(): void {
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: TOOL_DEFINITIONS as unknown as any[],
+      tools: TOOL_DEFINITIONS as unknown as ToolDefinition[],
     }));
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -434,11 +491,13 @@ export class GodotMcpOmniServer {
         const details: Record<string, unknown> = { tool };
 
         if (error instanceof Error) {
-          const anyError = error as any;
           const errorDetails: Record<string, unknown> = { name: error.name, message };
-          if (anyError?.code !== undefined) errorDetails.code = anyError.code;
-          if (Array.isArray(anyError?.attemptedCandidates)) {
-            errorDetails.attemptedCandidates = anyError.attemptedCandidates;
+          if (isRecord(error)) {
+            const errorRecord = error as Record<string, unknown>;
+            if (errorRecord.code !== undefined) errorDetails.code = errorRecord.code;
+            if (Array.isArray(errorRecord.attemptedCandidates)) {
+              errorDetails.attemptedCandidates = errorRecord.attemptedCandidates;
+            }
           }
           details.error = errorDetails;
         } else {
@@ -448,7 +507,7 @@ export class GodotMcpOmniServer {
         result = { ok: false, summary: message, details, logs: [] };
       }
 
-      const maybeProjectPath = (args as any)?.projectPath;
+      const maybeProjectPath = getStringField(args, 'projectPath');
       const auditProjectPath =
         typeof maybeProjectPath === 'string' && maybeProjectPath.length > 0
           ? maybeProjectPath
@@ -467,7 +526,7 @@ export class GodotMcpOmniServer {
             ok: Boolean(result.ok),
             summary: String(result.summary ?? ''),
             details: redactSecrets(result.details),
-            error: redactSecrets((result.details as any)?.error),
+            error: redactSecrets(isRecord(result.details) ? result.details.error : undefined),
           });
         } catch (error) {
           this.logDebug(`Audit log failed: ${String(error)}`);
@@ -478,12 +537,12 @@ export class GodotMcpOmniServer {
     });
   }
 
-  private async dispatchTool(tool: string, args: any): Promise<ToolResponse> {
+  private async dispatchTool(tool: string, args: unknown): Promise<ToolResponse> {
     const handler = this.toolHandlers[tool];
     if (!handler) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${tool}`);
 
     try {
-      return await handler(args);
+      return await handler(args as Record<string, unknown>);
     } catch (error) {
       const invalid = invalidArgs(tool, error);
       if (invalid) return invalid;
@@ -508,4 +567,3 @@ export class GodotMcpOmniServer {
     console.error('godot-mcp-omni server running on stdio');
   }
 }
-

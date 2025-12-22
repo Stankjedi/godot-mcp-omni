@@ -103,6 +103,13 @@ func _err(summary: String, details: Dictionary = {}) -> Dictionary:
 func _to_res_path(p: String) -> String:
 	return p if p.begins_with("res://") else "res://" + p
 
+func _uid_text_from_value(value: Variant) -> String:
+	if typeof(value) == TYPE_STRING:
+		return String(value)
+	if typeof(value) == TYPE_INT:
+		return ResourceUID.id_to_text(int(value))
+	return ""
+
 func _ensure_dir_for_res_path(res_path: String) -> int:
 	var dir_path := _to_res_path(res_path).get_base_dir()
 	if dir_path == "res://" or dir_path == "res:":
@@ -304,9 +311,55 @@ func load_sprite(params: Dictionary) -> Dictionary:
 	if node == null:
 		return _err("Node not found", { "node_path": params.node_path })
 
-	var texture := load(texture_path)
+	var texture: Texture2D = null
+	var loader_path := "imported_load"
+	var svg_loader_available := false
+	var loaded := load(texture_path)
+	if loaded != null and loaded is Texture2D:
+		texture = loaded
+	else:
+		var image := Image.new()
+		var err := OK
+		var lower_path := texture_path.to_lower()
+		if lower_path.ends_with(".svg"):
+			var f := FileAccess.open(texture_path, FileAccess.READ)
+			if f == null:
+				return _err("Failed to open texture file", { "texture_path": texture_path, "error": FileAccess.get_open_error() })
+			var svg_text := f.get_as_text()
+			f.close()
+			svg_loader_available = image.has_method("load_svg_from_string") or image.has_method("load_svg_from_buffer")
+			if image.has_method("load_svg_from_string"):
+				loader_path = "svg_from_string"
+				err = image.load_svg_from_string(svg_text)
+			elif image.has_method("load_svg_from_buffer"):
+				loader_path = "svg_from_buffer"
+				err = image.load_svg_from_buffer(svg_text.to_utf8_buffer())
+			else:
+				loader_path = "svg_unavailable"
+				err = ERR_UNAVAILABLE
+		else:
+			loader_path = "image_load"
+			err = image.load(texture_path)
+		if err == OK:
+			texture = ImageTexture.create_from_image(image)
+		else:
+			if lower_path.ends_with(".svg"):
+				return _err(
+					"Failed to load texture",
+					{
+						"texture_path": texture_path,
+						"error": err,
+						"loader_path": loader_path,
+						"svg_loader_available": svg_loader_available,
+						"suggestions": [
+							"Prefer PNG textures for headless flows.",
+							"If you must use SVG, run an import step first or open the project once in the editor to trigger imports.",
+						],
+					}
+				)
+			return _err("Failed to load texture", { "texture_path": texture_path, "error": err, "loader_path": loader_path })
 	if texture == null:
-		return _err("Failed to load texture", { "texture_path": texture_path })
+		return _err("Failed to load texture", { "texture_path": texture_path, "loader_path": loader_path })
 
 	if node is Sprite2D or node is Sprite3D or node is TextureRect:
 		node.texture = texture
@@ -611,6 +664,18 @@ func get_uid(params: Dictionary) -> Dictionary:
 
 	var uid_path := file_path + ".uid"
 	if not FileAccess.file_exists(uid_path):
+		if ClassDB.class_exists("ResourceUID"):
+			var uid_text := _uid_text_from_value(ResourceUID.path_to_uid(file_path))
+			if uid_text.is_empty():
+				uid_text = _uid_text_from_value(ResourceUID.create_id_for_path(file_path))
+			if uid_text.is_empty():
+				uid_text = _uid_text_from_value(ResourceUID.create_id())
+			if not uid_text.is_empty():
+				var fgen := FileAccess.open(uid_path, FileAccess.WRITE)
+				if fgen != null:
+					fgen.store_string(uid_text)
+					fgen.close()
+				return _ok("UID read", { "file_path": file_path, "uid": uid_text, "generated": true })
 		return _err("UID file does not exist", { "file_path": file_path, "uid_path": uid_path })
 
 	var f := FileAccess.open(uid_path, FileAccess.READ)
@@ -687,7 +752,25 @@ func resave_resources(params: Dictionary) -> Dictionary:
 		var err := ResourceSaver.save(r, rp)
 		if err == OK and FileAccess.file_exists(uid_path):
 			uid_generated += 1
-		elif err != OK:
+		elif err == OK:
+			var created := false
+			if ClassDB.class_exists("ResourceUID"):
+				var uid_text := _uid_text_from_value(ResourceUID.path_to_uid(rp))
+				if uid_text.is_empty():
+					uid_text = _uid_text_from_value(ResourceUID.create_id_for_path(rp))
+				if uid_text.is_empty():
+					uid_text = _uid_text_from_value(ResourceUID.create_id())
+				if not uid_text.is_empty():
+					var f := FileAccess.open(uid_path, FileAccess.WRITE)
+					if f != null:
+						f.store_string(uid_text)
+						f.close()
+						created = true
+			if created:
+				uid_generated += 1
+			else:
+				uid_errors += 1
+		else:
 			uid_errors += 1
 
 	var ok := (scenes_errors == 0 and uid_errors == 0)
