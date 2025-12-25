@@ -140,7 +140,7 @@ npm run build
 
 | 액션 | 설명 | 주요 파라미터 |
 | :--- | :--- | :--- |
-| `capture_viewport` | 에디터 뷰포트 스냅샷 캡처 (Base64 PNG) | `maxSize?` |
+| `capture_viewport` | 에디터 뷰포트 스냅샷 캡처 (Base64 PNG) | `maxSize?`, `savePath?` |
 | `switch_screen` | 메인 화면 전환 (2D/3D/Script) | `screenName` |
 | `edit_script` | 스크립트 파일 열기 및 이동 | `scriptPath`, `lineNumber?` |
 | `add_breakpoint` | 스크립트에 중단점 추가 | `scriptPath`, `lineNumber` |

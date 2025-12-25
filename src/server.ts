@@ -814,6 +814,7 @@ const TOOL_DEFINITIONS = [
         },
         timeoutMs: { type: 'number' },
         maxSize: { type: 'number' },
+        savePath: { type: 'string', description: 'Optional: Local path to save the captured PNG' },
         screenName: { type: 'string' },
         scriptPath: { type: 'string' },
         lineNumber: { type: 'number' },

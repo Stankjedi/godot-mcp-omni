@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { assertEditorRpcAllowed } from '../security.js';
 import {
   asNonEmptyString,
@@ -796,10 +798,30 @@ export function createUnifiedToolHandlers(
           rpcParams,
           ctx.getEditorProjectPath() ?? '',
         );
-        return await callBaseTool(baseHandlers, 'godot_rpc', {
+        const response = await callBaseTool(baseHandlers, 'godot_rpc', {
           request_json: { method: 'viewport.capture', params: rpcParams },
           ...(timeoutMs ? { timeoutMs } : {}),
         });
+
+        const savePath = maybeGetString(argsObj, ['savePath', 'save_path'], 'savePath');
+        if (response.ok && savePath) {
+          try {
+            const result = (response.details?.result as any) || {};
+            const b64 = result.base64;
+            if (typeof b64 === 'string') {
+              const buffer = Buffer.from(b64, 'base64');
+              const fullPath = path.resolve(savePath);
+              fs.writeFileSync(fullPath, buffer);
+              response.summary = `Viewport captured and saved to: ${fullPath}`;
+              if (response.details) {
+                (response.details as any).saved_path = fullPath;
+              }
+            }
+          } catch (error) {
+            response.summary += ` (Failed to save file: ${String(error)})`;
+          }
+        }
+        return response;
       }
 
       if (action === 'switch_screen') {
