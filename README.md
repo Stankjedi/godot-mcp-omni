@@ -78,26 +78,95 @@ npm run build
 ## 🛠️ MCP 도구 레퍼런스
 
 ### 🏗️ Godot Scene Manager (`godot_scene_manager`)
-씬과 노드 구조를 관리합니다. (Hybrid)
-- `create_scene`, `add_node`, `remove_node`, `duplicate_node`, `reparent_node`, `instance_scene`
+씬과 노드 구조를 관리합니다. (Hybrid 지원)
+
+| 액션 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `create` | 노드 생성 (씬 내) | `nodeType`, `nodeName`, `parentNodePath?`, `props?`, (Headless: `projectPath`, `scenePath`) |
+| `duplicate` | 노드 복제 | `nodePath`, `newName?` |
+| `reparent` | 노드 부모 변경 | `nodePath`, `newParentPath`, `index?` |
+| `instance` | 씬을 노드로 인스턴스화 | `scenePath`, `parentNodePath?`, `name?`, `props?` |
+| `remove` | 노드 삭제 | `nodePath` |
+| `undo` | 마지막 작업 취소 | - |
+| `redo` | 취소한 작업 다시 실행 | - |
+
+
+---
 
 ### 🔍 Godot Inspector Manager (`godot_inspector_manager`)
-노드와 리소스의 속성을 검사하고 수정합니다. (Hybrid)
-- `get_property`, `set_property`, `list_properties`, `connect_signal`, `inspect_object`
+노드와 리소스의 속성을 검사하고 수정합니다. (Hybrid 지원)
+
+| 액션 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `query` | 씬 트리 노드 검색 | `name?`, `nameContains?`, `className?`, `group?`, `limit?` |
+| `inspect` | 클래스/노드/인스턴스 정보 조회 | `className`, `nodePath`, 또는 `instanceId` (하나 선택) |
+| `select` | 에디터에서 노드 선택 | `nodePath` 또는 `instanceId`, `additive?` |
+| `connect_signal` | 시그널 연결 | `fromNodePath`, `signal`, `toNodePath`, `method` |
+| `disconnect_signal` | 시그널 연결 해제 | `fromNodePath`, `signal`, `toNodePath`, `method` |
+| `property_list` | 프로퍼티 목록 조회 | `className`, `nodePath`, 또는 `instanceId` (하나 선택) |
+
+---
 
 ### 🎨 Godot Asset Manager (`godot_asset_manager`)
 프로젝트 자산과 UID 시스템을 관리합니다.
-- `filesystem_scan`, `get_uid`, `update_project_uids`, `load_sprite`
+
+| 액션 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `load_texture` | Sprite2D에 텍스처 로드 | `projectPath`, `scenePath`, `nodePath`, `texturePath` |
+| `get_uid` | 파일의 UID 조회 (Godot 4.4+) | `projectPath`, `filePath` |
+| `scan` | 파일시스템 스캔 | - (에디터) 또는 `projectPath` (Headless) |
+| `reimport` | 특정 파일 재임포트 | `files` (배열) |
+| `auto_import_check` | 헤드리스 임포트 | `projectPath`, `godotPath?` |
+
+---
 
 ### 🚀 Godot Workspace Manager (`godot_workspace_manager`)
-프로젝트 라이프사이클 및 연결을 관리합니다.
-- `launch_editor`, `godot_connect_editor`, `godot_preflight`, `run_project`, `godot_sync_addon`
+프로젝트 라이프사이클 및 에디터 연결을 관리합니다.
+
+| 액션 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `launch` | Godot 에디터 실행 | `projectPath`, `token?`, `port?`, `godotPath?` |
+| `connect` | 에디터 브릿지 TCP 연결 | `projectPath`, `token?`, `host?`, `port?`, `timeoutMs?` |
+| `run` | 프로젝트 디버그 모드 실행 | `projectPath?`, `scene?`, `mode?` (auto/headless) |
+| `stop` | 실행 중인 프로젝트 중지 | `mode?` (auto/headless) |
+| `restart` | 프로젝트 재시작 | `projectPath?`, `mode?` (auto/headless) |
+| `open_scene` | 에디터에서 씬 열기 | `scenePath` |
+| `save_all` | 모든 씬 저장 | - |
+
+---
 
 ### 📺 Godot Editor View Manager (`godot_editor_view_manager`)
 에디터 GUI를 직접 제어합니다. (Editor Only)
-- `viewport_capture`, `viewport_set_screen`, `script_edit`, `script_add_breakpoint`
+
+| 액션 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `capture_viewport` | 에디터 뷰포트 스냅샷 캡처 (Base64 PNG) | `maxSize?` |
+| `switch_screen` | 메인 화면 전환 (2D/3D/Script) | `screenName` |
+| `edit_script` | 스크립트 파일 열기 및 이동 | `scriptPath`, `lineNumber?` |
+| `add_breakpoint` | 스크립트에 중단점 추가 | `scriptPath`, `lineNumber` |
 
 ---
+
+### ⚙️ Headless Batch Operations
+GUI 없이 여러 작업을 한 번에 처리합니다.
+
+| 도구 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `godot_headless_op` | 단일 헤드리스 작업 실행 | `projectPath`, `operation`, `params` |
+| `godot_headless_batch` | 다중 스텝 배치 작업 실행 | `projectPath`, `steps` (배열), `stopOnError?` |
+
+---
+
+### 🔧 Low-Level RPC (`godot_rpc`)
+에디터 브릿지에 직접 RPC 요청을 전송합니다.
+
+| 도구 | 설명 | 주요 파라미터 |
+| :--- | :--- | :--- |
+| `godot_rpc` | Raw RPC JSON 요청 | `request_json` (`{ method, params }`), `timeoutMs?` |
+| `godot_inspect` | 클래스/노드/인스턴스 정보 조회 | `query_json`, `timeoutMs?` |
+
+---
+
 
 ## 🔧 환경 변수
 
