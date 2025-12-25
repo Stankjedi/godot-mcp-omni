@@ -112,6 +112,26 @@ export function asOptionalPositiveNumber(
   return asPositiveNumber(value, fieldName);
 }
 
+export function asNonNegativeInteger(value: unknown, fieldName: string): number {
+  const n = asNumber(value, fieldName);
+  if (!Number.isSafeInteger(n) || !Number.isInteger(n) || n < 0) {
+    throw new ValidationError(
+      fieldName,
+      `Invalid field "${fieldName}": expected non-negative integer`,
+      valueType(value),
+    );
+  }
+  return n;
+}
+
+export function asOptionalNonNegativeInteger(
+  value: unknown,
+  fieldName: string,
+): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  return asNonNegativeInteger(value, fieldName);
+}
+
 export function asRecord(
   value: unknown,
   fieldName: string,

@@ -1,8 +1,8 @@
 # godot-mcp-omni
 
-> **"AI가 Godot 게임 개발을 자동화할 수 있는 MCP 서버"**
+> **"AI가 Godot 게임 개발을 자동화할 수 있는 강력한 Unified MCP 서버"**
 
-`Coding-Solo/godot-mcp`의 확장 포크로, **headless 자동화**와 **에디터 실시간 제어**를 모두 지원합니다.
+`Coding-Solo/godot-mcp`의 확장 포크로, **Hybrid Dispatcher** 시스템을 통해 headless 자동화와 에디터 실시간 제어를 지능적으로 통합 지원합니다.
 
 [![MCP Server](https://badge.mcpx.dev?type=server)](https://modelcontextprotocol.io/introduction)
 [![Made with Godot](https://img.shields.io/badge/Made%20with-Godot%204.4+-478CBF?style=flat&logo=godot%20engine&logoColor=white)](https://godotengine.org)
@@ -13,32 +13,27 @@
 
 ---
 
-## ✨ 추가된 기능
+## ✨ 주요 특징 (v0.2.0)
 
-[Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp) 기반으로 다음 기능들이 추가되었습니다:
+### 🚀 통합 관리자 시스템 (Unified Managers)
+ granular한 도구들을 5개의 핵심 관리자로 통폐합하여 복잡성을 줄이고 사용성을 극대화했습니다.
 
-### 🎬 Headless 작업 (CI/CD 지원)
+- **Hybrid Dispatcher**: 에디터 연결 상태를 자동 감지하여 RPC(실시간) 또는 Headless(명령행) 모드를 지능적으로 선택합니다.
+- **Auto-Type Casting**: JSON 데이터를 Godot 내장 타입(Vector3, Color, Transform 등)으로 자동 변환 지원.
 
-- **Scene 관리**: `create_scene`, `add_node`, `save_scene` - GUI 없이 씬 생성/편집
-- **텍스처 로딩**: `load_sprite` - PNG, SVG 텍스처를 Sprite에 로드
-- **MeshLibrary**: `export_mesh_library` - 3D 씬을 GridMap용 라이브러리로 익스포트
-- **에셋 임포트**: `godot_import_project_assets` - headless 모드에서 에셋 임포트
+### 🔌 실시간 에디터 제어 및 시각화 (Roadmap 5.4)
+AI가 에디터의 눈과 손이 되어 협업할 수 있는 기능을 제공합니다.
 
-### 🔌 에디터 브릿지 (실시간 제어)
+- **Viewport Capture**: 현재 에디터 뷰포트를 스냅샷(Base64 PNG)으로 캡처하여 AI에게 전달.
+- **Screen Switch**: 2D, 3D, Script 화면 간 즉각적인 전환 지원.
+- **Script Editor**: 특정 스크립트 열기, 커서 이동 및 중단점(Breakpoint) 원격 관리.
+- **Transactional Edition**: 에디터 내 Undo/Redo 시스템과 완벽하게 연동되는 원자적 작업 수행.
 
-- **연결**: `godot_connect_editor` - 실행 중인 에디터와 TCP 연결
-- **RPC 호출**: `godot_rpc` - 에디터에 직접 명령 전송
-- **검사**: `godot_inspect` - 클래스/노드/인스턴스 정보 조회
+### 🎬 Headless & CI/CD 자동화
+GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 
-### 🔧 UID 관리 (Godot 4.4+)
-
-- `get_uid` - 파일의 UID 조회
-- `update_project_uids` - 프로젝트 전체 UID 갱신
-
-### 📊 진단 개선
-
-- 연결 실패 시 상세 diagnostics + 해결 suggestions 제공
-- 타입 안전한 입력 검증 (`unknown` + 런타임 체크)
+- **Atomic Batching**: 여러 작업을 한 번의 Godot 실행으로 처리하는 배치 작업 지원.
+- **Asset Pipeline**: 텍스처 로딩, UID 조회 및 업데이트(Godot 4.4+) 기능 제공.
 
 ---
 
@@ -61,30 +56,9 @@ npm install
 npm run build
 ```
 
-### 2. 테스트 실행
-
-```bash
-# 단위 테스트
-npm test
-
-# 기본 검증 (CI-safe)
-npm run verify:all
-
-# 전체 검증 (로컬, Godot 필요)
-GODOT_PATH=/path/to/godot npm run verify:full
-
-# (선택) Godot 기반 검증만 실행
-GODOT_PATH=/path/to/godot npm run verify:examples
-GODOT_PATH=/path/to/godot VERIFY_MCP_SKIP_EDITOR=true npm run verify:mcp
-
-# (선택) README/스프라이트 검증용 프로젝트 경로 오버라이드 (기본: <repoRoot>/.tmp/readme-test)
-VERIFY_PROJECT_PATH=/abs/path/to/project GODOT_PATH=/path/to/godot npm run verify:examples
-```
-
-### 3. AI 어시스턴트에 연결
+### 2. AI 어시스턴트에 연결
 
 #### Cline 설정 (`cline_mcp_settings.json`)
-
 ```json
 {
   "mcpServers": {
@@ -99,224 +73,53 @@ VERIFY_PROJECT_PATH=/abs/path/to/project GODOT_PATH=/path/to/godot npm run verif
 }
 ```
 
-#### Cursor 설정 (`.cursor/mcp.json`)
-
-```json
-{
-  "mcpServers": {
-    "godot": {
-      "command": "node",
-      "args": ["/absolute/path/to/godot-mcp-omni/build/index.js"]
-    }
-  }
-}
-```
-
 ---
 
 ## 🛠️ MCP 도구 레퍼런스
 
-### 프로젝트 관리
+### 🏗️ Godot Scene Manager (`godot_scene_manager`)
+씬과 노드 구조를 관리합니다. (Hybrid)
+- `create_scene`, `add_node`, `remove_node`, `duplicate_node`, `reparent_node`, `instance_scene`
 
-| 도구                | 설명                             | 주요 파라미터                                 |
-| ------------------- | -------------------------------- | --------------------------------------------- |
-| `list_projects`     | 디렉토리에서 Godot 프로젝트 검색 | `directory`, `recursive`                      |
-| `get_project_info`  | 프로젝트 구조 분석               | `projectPath`                                 |
-| `godot_preflight`   | 환경 사전 점검                   | `projectPath`, `godotPath?`, `host?`, `port?` |
-| `get_godot_version` | Godot 버전 조회                  | -                                             |
-| `launch_editor`     | Godot 에디터 실행                | `projectPath`, `token?`, `port?`              |
-| `run_project`       | 프로젝트 디버그 모드 실행        | `projectPath`, `scene?`                       |
-| `stop_project`      | 실행 중인 프로젝트 중지          | -                                             |
-| `get_debug_output`  | 디버그 출력 조회                 | -                                             |
+### 🔍 Godot Inspector Manager (`godot_inspector_manager`)
+노드와 리소스의 속성을 검사하고 수정합니다. (Hybrid)
+- `get_property`, `set_property`, `list_properties`, `connect_signal`, `inspect_object`
 
-### Scene 관리
+### 🎨 Godot Asset Manager (`godot_asset_manager`)
+프로젝트 자산과 UID 시스템을 관리합니다.
+- `filesystem_scan`, `get_uid`, `update_project_uids`, `load_sprite`
 
-| 도구                  | 설명                            | 주요 파라미터                                                                        |
-| --------------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
-| `create_scene`        | 새 Scene 생성                   | `projectPath`, `scenePath`, `rootNodeType?`                                          |
-| `add_node`            | Scene에 노드 추가               | `projectPath`, `scenePath`, `nodeType`, `nodeName`, `parentNodePath?`, `properties?` |
-| `save_scene`          | Scene 저장                      | `projectPath`, `scenePath`, `newPath?`                                               |
-| `load_sprite`         | Sprite에 텍스처 로드            | `projectPath`, `scenePath`, `nodePath`, `texturePath`                                |
-| `export_mesh_library` | 3D Scene → MeshLibrary 익스포트 | `projectPath`, `scenePath`, `outputPath`                                             |
+### 🚀 Godot Workspace Manager (`godot_workspace_manager`)
+프로젝트 라이프사이클 및 연결을 관리합니다.
+- `launch_editor`, `godot_connect_editor`, `godot_preflight`, `run_project`, `godot_sync_addon`
 
-### Headless 작업
-
-| 도구                          | 설명                                           | 주요 파라미터                          |
-| ----------------------------- | ---------------------------------------------- | -------------------------------------- |
-| `godot_headless_op`           | 범용 headless 작업 실행                        | `projectPath`, `operation`, `params`   |
-| `godot_headless_batch`        | 한 번의 Godot 실행으로 여러 headless 작업 수행 | `projectPath`, `steps`, `stopOnError?` |
-| `godot_import_project_assets` | 프로젝트 에셋 임포트 (headless)                | `projectPath`, `godotPath?`            |
-
-### UID 관리 (Godot 4.4+)
-
-| 도구                  | 설명                   | 주요 파라미터             |
-| --------------------- | ---------------------- | ------------------------- |
-| `get_uid`             | 파일의 UID 조회        | `projectPath`, `filePath` |
-| `update_project_uids` | 프로젝트 전체 UID 갱신 | `projectPath`             |
-
-### 에디터 브릿지 (실시간 제어)
-
-| 도구                   | 설명                      | 주요 파라미터                                           |
-| ---------------------- | ------------------------- | ------------------------------------------------------- |
-| `godot_sync_addon`     | MCP 브릿지 애드온 동기화  | `projectPath`, `enablePlugin?`                          |
-| `godot_connect_editor` | 에디터 브릿지 연결        | `projectPath`, `token?`, `host?`, `port?`, `timeoutMs?` |
-| `godot_rpc`            | 에디터에 RPC 요청 전송    | `request_json`, `timeoutMs?`                            |
-| `godot_inspect`        | 클래스/노드/인스턴스 검사 | `query_json`, `timeoutMs?`                              |
+### 📺 Godot Editor View Manager (`godot_editor_view_manager`)
+에디터 GUI를 직접 제어합니다. (Editor Only)
+- `viewport_capture`, `viewport_set_screen`, `script_edit`, `script_add_breakpoint`
 
 ---
 
 ## 🔧 환경 변수
 
-| 변수                  | 설명                    | 기본값      |
-| --------------------- | ----------------------- | ----------- |
-| `GODOT_PATH`          | Godot 실행 파일 경로    | 자동 탐지   |
-| `GODOT_MCP_TOKEN`     | 에디터 브릿지 인증 토큰 | -           |
-| `GODOT_MCP_PORT`      | 에디터 브릿지 포트      | `8765`      |
-| `GODOT_MCP_HOST`      | 에디터 브릿지 호스트    | `127.0.0.1` |
-| `ALLOW_DANGEROUS_OPS` | 위험한 작업 허용 여부   | `false`     |
-| `DEBUG`               | 디버그 로깅 활성화      | `false`     |
+| 변수 | 설명 | 기본값 |
+| :--- | :--- | :--- |
+| `GODOT_PATH` | Godot 실행 파일 경로 | 자동 탐지 |
+| `GODOT_MCP_TOKEN` | 에디터 브릿지 인증 토큰 | - |
+| `GODOT_MCP_PORT` | 에디터 브릿지 포트 | `8765` |
+| `ALLOW_DANGEROUS_OPS`| 위험한 작업 허용 여부 | `false` |
 
 ---
 
 ## 📋 사용 예시
 
-### Scene 생성 및 노드 추가
+### AI에게 시각적 정보 요청
+> "지금 에디터 뷰포트 상황을 캡처해서 보여줘"
 
-```text
-"MyGame 프로젝트에 Player.tscn 씬을 만들고 CharacterBody2D를 루트로 설정해줘"
-"Player 씬에 Sprite2D 노드를 추가하고 player.png 텍스처를 로드해줘"
-```
+### 노드 생성 및 프로퍼티 설정 (Auto-Casting)
+> "CharacterBody2D 노드를 'Player'라는 이름으로 추가하고, Position을 (100, 200, 0)으로 설정해줘"
 
-### godot_preflight (사전 점검)
-
-에디터 브릿지/헤드리스 작업을 실행하기 전에, 프로젝트/애드온/포트/Godot 환경을 빠르게 점검합니다.
-
-```json
-{
-  "projectPath": "/abs/path/to/MyGame",
-  "host": "127.0.0.1",
-  "port": 8765
-}
-```
-
-권장 순서:
-
-1. `godot_preflight`
-2. (필요 시) `godot_sync_addon`
-3. `launch_editor` 또는 `godot_connect_editor` → `godot_rpc`
-
-### godot_headless_batch (멀티 스텝 scene flow)
-
-```json
-{
-  "projectPath": "/abs/path/to/MyGame",
-  "stopOnError": true,
-  "steps": [
-    {
-      "operation": "create_scene",
-      "params": {
-        "scenePath": "scenes/Player.tscn",
-        "rootNodeType": "CharacterBody2D"
-      }
-    },
-    {
-      "operation": "add_node",
-      "params": {
-        "scenePath": "scenes/Player.tscn",
-        "parentNodePath": "root",
-        "nodeType": "Sprite2D",
-        "nodeName": "PlayerSprite"
-      }
-    },
-    {
-      "operation": "load_sprite",
-      "params": {
-        "scenePath": "scenes/Player.tscn",
-        "nodePath": "root/PlayerSprite",
-        "texturePath": "res://player.png"
-      }
-    },
-    {
-      "operation": "save_scene",
-      "params": { "scenePath": "scenes/Player.tscn" }
-    }
-  ]
-}
-```
-
-### 프로젝트 분석
-
-```text
-"MyGame 프로젝트 구조를 분석해서 개선점을 알려줘"
-"현재 씬 수와 스크립트 수를 확인해줘"
-```
-
-### 에디터 제어
-
-```text
-"Godot 에디터를 실행하고 연결해줘"
-"현재 열린 씬의 노드 구조를 보여줘"
-```
-
-### Headless CI/CD
-
-```text
-"프로젝트 에셋을 headless 모드로 임포트해줘"
-"MeshLibrary.tres로 3D 메시를 익스포트해줘"
-```
-
----
-
-## 🔍 트러블슈팅
-
-### 에디터 연결 실패
-
-`godot_connect_editor` 실패 시 상세 진단 정보가 반환됩니다:
-
-```json
-{
-  "ok": false,
-  "summary": "Failed to connect editor bridge: ...",
-  "details": {
-    "host": "127.0.0.1",
-    "port": 8765,
-    "timeoutMs": 30000,
-    "tokenSource": "env",
-    "lockFileExists": false,
-    "lastError": { "code": "ECONNREFUSED" },
-    "suggestions": [
-      "Confirm the editor is running and the plugin is enabled",
-      "Check that the port is reachable"
-    ]
-  }
-}
-```
-
-**해결 방법:**
-
-1. Project Settings → Plugins에서 **Godot MCP Bridge** 활성화
-2. `GODOT_MCP_TOKEN` 환경변수 또는 `.godot_mcp_token` 파일 확인
-3. 방화벽에서 포트 허용
-
-### SVG 로딩 실패
-
-Headless 모드에서 SVG 로딩 실패 시:
-
-```json
-{
-  "ok": false,
-  "details": {
-    "loader_path": "svg_from_string",
-    "svg_loader_available": true,
-    "suggestions": [
-      "Prefer PNG textures for headless flows.",
-      "Run an import step first or open the project once in the editor."
-    ]
-  }
-}
-```
-
-**권장:** Headless 워크플로우에서는 PNG 사용
+### 스크립트 디버깅 보조
+> "Player.gd 파일을 열고 15번 라인에 중단점을 걸어줘"
 
 ---
 
@@ -327,28 +130,22 @@ godot-mcp-omni/
 ├── src/
 │   ├── server.ts           # MCP 서버 메인
 │   ├── tools/
-│   │   ├── editor.ts       # 에디터 브릿지 도구
-│   │   ├── project.ts      # 프로젝트 관리 도구
-│   │   ├── headless.ts     # Headless 작업 도구
-│   │   └── types.ts        # 타입 정의
+│   │   ├── scene.ts        # Scene Manager
+│   │   ├── inspector.ts    # Inspector Manager
+│   │   ├── asset.ts        # Asset Manager
+│   │   ├── workspace.ts    # Workspace Manager
+│   │   └── view.ts         # Editor View Manager
 │   ├── scripts/
-│   │   └── godot_operations.gd  # Godot 작업 스크립트
-│   └── validation.ts       # 입력 검증
+│   │   └── godot_operations.gd  # Headless 엔진
+│   └── bridge/             # RPC Dispatcher 로직
 ├── addons/
-│   └── godot_mcp_bridge/   # Godot 에디터 플러그인
-├── test/                   # 단위 테스트
-└── scripts/
-    └── verify_mcp.js       # E2E 검증 스크립트
+│   └── godot_mcp_bridge/   # Godot 에디터 플러그인 (v0.2.0)
+└── test/                   # 검증 테스트 세트
 ```
-
----
-
-## 📄 라이선스
-
-MIT License - [LICENSE](LICENSE) 참조
 
 ---
 
 ## 🙏 크레딧
 
 - 원본 프로젝트: [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp)
+- 확장 및 유지보수: [Stankjedi](https://github.com/Stankjedi)

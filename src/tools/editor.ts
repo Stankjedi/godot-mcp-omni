@@ -9,6 +9,7 @@ import { assertEditorRpcAllowed } from '../security.js';
 import {
   ValidationError,
   asNonEmptyString,
+  asNonNegativeInteger,
   asOptionalBoolean,
   asOptionalPositiveNumber,
   asOptionalRecord,
@@ -69,6 +70,42 @@ function getStringField(
 ): string | undefined {
   const field = value[key];
   return typeof field === 'string' ? field : undefined;
+}
+
+function asInstanceId(value: unknown, fieldName: string): number | string {
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new ValidationError(
+        fieldName,
+        `Invalid field "${fieldName}": expected positive integer`,
+        valueType(value),
+      );
+    }
+    if (!Number.isSafeInteger(value)) {
+      throw new ValidationError(
+        fieldName,
+        `Invalid field "${fieldName}": number is not a safe integer; pass instanceId as a string instead`,
+        valueType(value),
+      );
+    }
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^[0-9]+$/u.test(trimmed) || trimmed === '0') {
+      throw new ValidationError(
+        fieldName,
+        `Invalid field "${fieldName}": expected integer string`,
+        valueType(value),
+      );
+    }
+    return trimmed;
+  }
+  throw new ValidationError(
+    fieldName,
+    `Invalid field "${fieldName}": expected integer or integer string`,
+    valueType(value),
+  );
 }
 
 export function createEditorToolHandlers(
@@ -572,17 +609,10 @@ export function createEditorToolHandlers(
           node_path: asNonEmptyString(nodePath, 'query_json.node_path'),
         };
       } else {
-        const instanceId = asPositiveNumber(
+        const instanceId = asInstanceId(
           instanceIdRaw,
           'query_json.instance_id',
         );
-        if (!Number.isInteger(instanceId)) {
-          throw new ValidationError(
-            'query_json.instance_id',
-            'Invalid field \"query_json.instance_id\": expected integer',
-            'number',
-          );
-        }
         method = 'inspect_object';
         params = { instance_id: instanceId };
       }
@@ -782,18 +812,7 @@ export function createEditorToolHandlers(
         const instanceId =
           instanceIdRaw === undefined || instanceIdRaw === null
             ? undefined
-            : asPositiveNumber(instanceIdRaw, 'instanceId');
-        if (
-          typeof instanceId === 'number' &&
-          instanceId !== undefined &&
-          !Number.isInteger(instanceId)
-        ) {
-          throw new ValidationError(
-            'instanceId',
-            'Invalid field "instanceId": expected integer',
-            'number',
-          );
-        }
+            : asInstanceId(instanceIdRaw, 'instanceId');
 
         if (!nodePath && instanceId === undefined) {
           throw new ValidationError(
@@ -930,14 +949,7 @@ export function createEditorToolHandlers(
       const index =
         indexRaw === undefined || indexRaw === null
           ? undefined
-          : asPositiveNumber(indexRaw, 'index');
-      if (typeof index === 'number' && !Number.isInteger(index)) {
-        throw new ValidationError(
-          'index',
-          'Invalid field "index": expected integer',
-          'number',
-        );
-      }
+          : asNonNegativeInteger(indexRaw, 'index');
       const timeoutMs =
         asOptionalPositiveNumber(argsObj.timeoutMs, 'timeoutMs') ?? 10000;
 

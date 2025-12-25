@@ -197,7 +197,7 @@ async function main() {
       }),
     );
 
-    // Test 11: Create 3D scene for MeshLibrary
+    // Test 11: Create a simple 3D scene
     await runTest('create_scene (MeshScene.tscn)', async () =>
       client.callToolOrThrow('create_scene', {
         projectPath,
@@ -231,15 +231,6 @@ mesh = SubResource(1)
         projectPath,
         operation: 'write_text_file',
         params: { path: 'scenes/3d/BoxScene.tscn', content: meshSceneContent },
-      }),
-    );
-
-    // Test 14: Export MeshLibrary
-    await runTest('export_mesh_library', async () =>
-      client.callToolOrThrow('export_mesh_library', {
-        projectPath,
-        scenePath: 'scenes/3d/BoxScene.tscn',
-        outputPath: 'resources/MeshLibrary.tres',
       }),
     );
 

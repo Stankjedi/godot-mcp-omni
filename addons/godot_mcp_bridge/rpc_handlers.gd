@@ -21,6 +21,10 @@ func capabilities() -> Dictionary:
 		"methods": [
 			"ping",
 			"health",
+			"editor.play_main",
+			"editor.stop",
+			"editor.restart",
+			"editor.save_all",
 			"open_scene",
 			"save_scene",
 			"get_current_scene",
@@ -28,6 +32,8 @@ func capabilities() -> Dictionary:
 			"begin_action",
 			"commit_action",
 			"abort_action",
+			"undo_redo.undo",
+			"undo_redo.redo",
 			"add_node",
 			"remove_node",
 			"duplicate_node",
@@ -42,6 +48,10 @@ func capabilities() -> Dictionary:
 			"scene_tree.query",
 			"filesystem.scan",
 			"filesystem.reimport_files",
+			"viewport.capture",
+			"viewport.set_screen",
+			"script.edit",
+			"script.add_breakpoint",
 			"call",
 			"set",
 			"get",
@@ -56,6 +66,14 @@ func handle(method: String, params: Dictionary) -> Dictionary:
 			return _ping()
 		"health":
 			return _health()
+		"editor.play_main":
+			return _editor_play_main()
+		"editor.stop":
+			return _editor_stop()
+		"editor.restart":
+			return _editor_restart(params)
+		"editor.save_all":
+			return _editor_save_all()
 		"open_scene":
 			return _open_scene(params)
 		"save_scene":
@@ -70,6 +88,10 @@ func handle(method: String, params: Dictionary) -> Dictionary:
 			return _commit_action(params)
 		"abort_action":
 			return _abort_action()
+		"undo_redo.undo":
+			return _undo_redo_undo()
+		"undo_redo.redo":
+			return _undo_redo_redo()
 		"add_node":
 			return _add_node(params)
 		"remove_node":
@@ -98,6 +120,14 @@ func handle(method: String, params: Dictionary) -> Dictionary:
 			return _filesystem_scan()
 		"filesystem.reimport_files":
 			return _filesystem_reimport_files(params)
+		"viewport.capture":
+			return _viewport_capture(params)
+		"viewport.set_screen":
+			return _viewport_set_screen(params)
+		"script.edit":
+			return _script_edit(params)
+		"script.add_breakpoint":
+			return _script_add_breakpoint(params)
 		"call":
 			return _generic_call(params)
 		"set":
@@ -122,21 +152,33 @@ func _variant_to_json(value):
 		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING:
 			return value
 		TYPE_STRING_NAME:
-			return String(value)
+			return str(value)
 		TYPE_NODE_PATH:
-			return String(value)
+			return str(value)
 		TYPE_VECTOR2:
 			var v2: Vector2 = value
 			return { JSON_TYPE_KEY: "Vector2", "x": v2.x, "y": v2.y }
+		TYPE_VECTOR2I:
+			var v2i: Vector2i = value
+			return { JSON_TYPE_KEY: "Vector2i", "x": v2i.x, "y": v2i.y }
 		TYPE_VECTOR3:
 			var v3: Vector3 = value
 			return { JSON_TYPE_KEY: "Vector3", "x": v3.x, "y": v3.y, "z": v3.z }
+		TYPE_VECTOR3I:
+			var v3i: Vector3i = value
+			return { JSON_TYPE_KEY: "Vector3i", "x": v3i.x, "y": v3i.y, "z": v3i.z }
+		TYPE_VECTOR4:
+			var v4: Vector4 = value
+			return { JSON_TYPE_KEY: "Vector4", "x": v4.x, "y": v4.y, "z": v4.z, "w": v4.w }
 		TYPE_COLOR:
 			var c: Color = value
 			return { JSON_TYPE_KEY: "Color", "r": c.r, "g": c.g, "b": c.b, "a": c.a }
 		TYPE_RECT2:
 			var r: Rect2 = value
 			return { JSON_TYPE_KEY: "Rect2", "x": r.position.x, "y": r.position.y, "w": r.size.x, "h": r.size.y }
+		TYPE_RECT2I:
+			var ri: Rect2i = value
+			return { JSON_TYPE_KEY: "Rect2i", "x": ri.position.x, "y": ri.position.y, "w": ri.size.x, "h": ri.size.y }
 		TYPE_TRANSFORM2D:
 			var t2: Transform2D = value
 			return {
@@ -164,7 +206,7 @@ func _variant_to_json(value):
 		TYPE_DICTIONARY:
 			var out: Dictionary = {}
 			for k in value.keys():
-				out[String(k)] = _variant_to_json(value[k])
+				out[str(k)] = _variant_to_json(value[k])
 			return out
 		_:
 			return var_to_str(value)
@@ -176,7 +218,7 @@ func _num(v, fallback: float = 0.0) -> float:
 		TYPE_FLOAT:
 			return float(v)
 		TYPE_STRING:
-			var s := String(v).strip_edges()
+			var s := str(v).strip_edges()
 			if s.is_valid_float():
 				return float(s)
 			if s.is_valid_int():
@@ -193,16 +235,24 @@ func _json_to_variant(value):
 		TYPE_DICTIONARY:
 			var d: Dictionary = value
 			if d.has(JSON_TYPE_KEY) and typeof(d.get(JSON_TYPE_KEY)) == TYPE_STRING:
-				var t := String(d.get(JSON_TYPE_KEY)).strip_edges()
+				var t := str(d.get(JSON_TYPE_KEY)).strip_edges()
 				match t:
 					"Vector2":
 						return Vector2(_num(d.get("x")), _num(d.get("y")))
+					"Vector2i":
+						return Vector2i(int(_num(d.get("x"))), int(_num(d.get("y"))))
 					"Vector3":
 						return Vector3(_num(d.get("x")), _num(d.get("y")), _num(d.get("z")))
+					"Vector3i":
+						return Vector3i(int(_num(d.get("x"))), int(_num(d.get("y"))), int(_num(d.get("z"))))
+					"Vector4":
+						return Vector4(_num(d.get("x")), _num(d.get("y")), _num(d.get("z")), _num(d.get("w")))
 					"Color":
 						return Color(_num(d.get("r")), _num(d.get("g")), _num(d.get("b")), _num(d.get("a"), 1.0))
 					"Rect2":
 						return Rect2(_num(d.get("x")), _num(d.get("y")), _num(d.get("w")), _num(d.get("h")))
+					"Rect2i":
+						return Rect2i(int(_num(d.get("x"))), int(_num(d.get("y"))), int(_num(d.get("w"))), int(_num(d.get("h"))))
 					"Transform2D":
 						var x_v = _json_to_variant(d.get("x", {}))
 						var y_v = _json_to_variant(d.get("y", {}))
@@ -231,13 +281,13 @@ func _json_to_variant(value):
 
 			var out_d: Dictionary = {}
 			for k in d.keys():
-				out_d[String(k)] = _json_to_variant(d[k])
+				out_d[str(k)] = _json_to_variant(d[k])
 			return out_d
 		_:
 			return value
 
 func _dangerous_allowed() -> bool:
-	return String(OS.get_environment("ALLOW_DANGEROUS_OPS")).strip_edges() == "true"
+	return str(OS.get_environment("ALLOW_DANGEROUS_OPS")).strip_edges() == "true"
 
 func _project_root_abs() -> String:
 	var p = ProjectSettings.globalize_path("res://")
@@ -325,11 +375,11 @@ func _node_path_str(node: Node) -> String:
 		return ""
 	if node == root:
 		return "root"
-	return String(root.get_path_to(node))
+	return str(root.get_path_to(node))
 
 func _unique_name_str(node: Node) -> String:
 	if _is_unique_name_in_owner(node):
-		return "%" + String(node.name)
+		return "%" + str(node.name)
 	return ""
 
 func _join_node_path(parent_path: String, name: String) -> String:
@@ -343,6 +393,8 @@ func _node_info(node: Node) -> Dictionary:
 		"name": node.name,
 		"class": node.get_class(),
 		"instance_id": node.get_instance_id(),
+		"instance_id_str": str(node.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node),
 		"unique_name": _unique_name_str(node),
 	}
 
@@ -367,8 +419,12 @@ func _get_instance_id(params: Dictionary, keys: Array) -> int:
 		var v = params.get(k)
 		if typeof(v) == TYPE_INT:
 			return int(v)
+		if typeof(v) == TYPE_FLOAT:
+			var f := float(v)
+			if f == floor(f):
+				return int(f)
 		if typeof(v) == TYPE_STRING:
-			var s = String(v)
+			var s = str(v)
 			if s.is_valid_int():
 				return int(s)
 	return 0
@@ -379,7 +435,7 @@ func _resolve_target(target_type: String, target_id, params: Dictionary) -> Dict
 		return _resp_err("target_type is required")
 
 	if tt == "singleton":
-		var id = String(target_id)
+		var id = str(target_id)
 		if id == "EditorInterface":
 			return _resp_ok({ "resolved": true, "target_type": tt, "target_id": id })
 		if id == "EditorFileSystem":
@@ -393,8 +449,8 @@ func _resolve_target(target_type: String, target_id, params: Dictionary) -> Dict
 		if node_instance_id != 0:
 			var inst = instance_from_id(node_instance_id)
 			if inst != null and inst is Node:
-				return _resp_ok({ "resolved": true, "target_type": tt, "instance_id": node_instance_id })
-		var node_id = String(target_id)
+				return _resp_ok({ "resolved": true, "target_type": tt, "instance_id": node_instance_id, "instance_id_str": str(node_instance_id) })
+		var node_id = str(target_id)
 		var node = _find_node(node_id)
 		if node == null:
 			return _resp_err("Node not found", { "node_id": node_id })
@@ -405,8 +461,8 @@ func _resolve_target(target_type: String, target_id, params: Dictionary) -> Dict
 		if res_instance_id != 0:
 			var inst2 = instance_from_id(res_instance_id)
 			if inst2 != null and inst2 is Resource:
-				return _resp_ok({ "resolved": true, "target_type": tt, "instance_id": res_instance_id })
-		var res_id = String(target_id)
+				return _resp_ok({ "resolved": true, "target_type": tt, "instance_id": res_instance_id, "instance_id_str": str(res_instance_id) })
+		var res_id = str(target_id)
 		if res_id.is_empty():
 			return _resp_err("resource target_id is required")
 		return _resp_ok({ "resolved": true, "target_type": tt, "target_id": res_id })
@@ -416,7 +472,7 @@ func _resolve_target(target_type: String, target_id, params: Dictionary) -> Dict
 func _get_target_object(target_type: String, target_id, params: Dictionary) -> Object:
 	var tt = target_type.strip_edges()
 	if tt == "singleton":
-		var id = String(target_id)
+		var id = str(target_id)
 		if id == "EditorInterface":
 			return _ei
 		if id == "EditorFileSystem":
@@ -431,7 +487,7 @@ func _get_target_object(target_type: String, target_id, params: Dictionary) -> O
 			var inst = instance_from_id(node_instance_id)
 			if inst != null and inst is Node:
 				return inst as Node
-		return _find_node(String(target_id))
+		return _find_node(str(target_id))
 
 	if tt == "resource":
 		var res_instance_id = _get_instance_id(params, ["instance_id", "instanceId"])
@@ -439,7 +495,7 @@ func _get_target_object(target_type: String, target_id, params: Dictionary) -> O
 			var inst2 = instance_from_id(res_instance_id)
 			if inst2 != null and inst2 is Resource:
 				return inst2 as Resource
-		return load(String(target_id))
+		return load(str(target_id))
 
 	return null
 
@@ -459,8 +515,314 @@ func _health() -> Dictionary:
 		"allow_dangerous_ops": _dangerous_allowed(),
 	})
 
+func _method_arg_count(obj: Object, method_name: String) -> int:
+	if obj == null:
+		return -1
+	var methods = obj.get_method_list()
+	for m in methods:
+		if typeof(m) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = m
+		if str(d.get("name", "")) != method_name:
+			continue
+		var args_v = d.get("args", [])
+		if typeof(args_v) == TYPE_ARRAY:
+			return (args_v as Array).size()
+		return 0
+	return -1
+
+func _editor_play_main() -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	if _ei.has_method("play_main_scene"):
+		_ei.call("play_main_scene")
+		return _resp_ok({ "requested": true, "mode": "main" })
+
+	return _resp_err("play_main_scene is not supported by this Godot version")
+
+func _editor_stop() -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	for m in ["stop_playing_scene", "stop_playing_current_scene", "stop_playing"]:
+		if _ei.has_method(m):
+			_ei.call(m)
+			return _resp_ok({ "requested": true, "method": m })
+
+	return _resp_err("Stop play is not supported by this Godot version")
+
+func _editor_save_all() -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	for m in ["save_all_scenes", "save_all"]:
+		if _ei.has_method(m):
+			_ei.call(m)
+			return _resp_ok({ "saved": true, "method": m })
+
+	var err = _ei.save_scene()
+	if err != OK:
+		return _resp_err("save_scene failed", { "error": err })
+	return _resp_ok({ "saved": true, "fallback": true, "method": "save_scene" })
+
+func _editor_restart(params: Dictionary) -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	if _ei.has_method("restart_editor"):
+		var save_all_v = params.get("save_all", params.get("saveAll", true))
+		var save_all := bool(save_all_v)
+		var argc = _method_arg_count(_ei, "restart_editor")
+		if argc <= 0:
+			_ei.call("restart_editor")
+		else:
+			_ei.call("restart_editor", save_all)
+		return _resp_ok({ "requested": true, "method": "restart_editor", "save_all": save_all })
+
+	# Fallback: restart play session.
+	var stop_resp = _editor_stop()
+	if not bool(stop_resp.get("ok", false)):
+		return _resp_err("Restart fallback failed (stop)", { "stop": stop_resp })
+
+	var play_resp = _editor_play_main()
+	if not bool(play_resp.get("ok", false)):
+		return _resp_err("Restart fallback failed (play)", { "play": play_resp })
+
+	return _resp_ok({ "requested": true, "fallback": true, "mode": "restart_play" })
+
+func _undo_redo_undo() -> Dictionary:
+	if _action_open:
+		return _resp_err("Cannot undo while an action is open. Call commit_action or abort_action first.", { "action_open": true })
+	if _undo == null:
+		return _resp_err("UndoRedo not available")
+
+	# Godot 4.x: EditorUndoRedoManager exposes histories via get_object_history_id + get_history_undo_redo.
+	if not _undo.has_method("get_object_history_id") or not _undo.has_method("get_history_undo_redo"):
+		return _resp_err(
+			"UndoRedo history APIs are not available on this undo object",
+			{ "undo_type": _undo.get_class() }
+		)
+
+	var root = _scene_root()
+	if root == null:
+		return _resp_err("No edited scene")
+
+	var hid_v = _undo.call("get_object_history_id", root)
+	var hid := int(_num(hid_v, 0.0))
+	var history_ur = _undo.call("get_history_undo_redo", hid)
+	if history_ur == null:
+		return _resp_err("UndoRedo history not found", { "history_id": hid })
+	if not history_ur.has_method("undo"):
+		return _resp_err("UndoRedo history does not support undo()", { "history_id": hid })
+
+	history_ur.call("undo")
+	return _resp_ok({ "undone": true, "history_id": hid })
+
+func _undo_redo_redo() -> Dictionary:
+	if _action_open:
+		return _resp_err("Cannot redo while an action is open. Call commit_action or abort_action first.", { "action_open": true })
+	if _undo == null:
+		return _resp_err("UndoRedo not available")
+
+	if not _undo.has_method("get_object_history_id") or not _undo.has_method("get_history_undo_redo"):
+		return _resp_err(
+			"UndoRedo history APIs are not available on this undo object",
+			{ "undo_type": _undo.get_class() }
+		)
+
+	var root = _scene_root()
+	if root == null:
+		return _resp_err("No edited scene")
+
+	var hid_v = _undo.call("get_object_history_id", root)
+	var hid := int(_num(hid_v, 0.0))
+	var history_ur = _undo.call("get_history_undo_redo", hid)
+	if history_ur == null:
+		return _resp_err("UndoRedo history not found", { "history_id": hid })
+	if not history_ur.has_method("redo"):
+		return _resp_err("UndoRedo history does not support redo()", { "history_id": hid })
+
+	history_ur.call("redo")
+	return _resp_ok({ "redone": true, "history_id": hid })
+
+func _normalize_screen_name(name: String) -> String:
+	var trimmed := name.strip_edges()
+	var lowered := trimmed.to_lower()
+	if lowered == "2d":
+		return "2D"
+	if lowered == "3d":
+		return "3D"
+	if lowered == "script" or lowered == "code":
+		return "Script"
+	return trimmed
+
+func _viewport_set_screen(params: Dictionary) -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	var screen_name = str(params.get("screen_name", params.get("screenName", "")))
+	if screen_name.strip_edges().is_empty():
+		return _resp_err("screen_name is required")
+
+	var normalized := _normalize_screen_name(screen_name)
+
+	for m in ["set_main_screen_editor", "set_main_screen"]:
+		if _ei.has_method(m):
+			_ei.call(m, normalized)
+			return _resp_ok({ "requested": true, "screen": normalized, "method": m })
+
+	return _resp_err("Screen switching is not supported by this Godot version", { "screen": normalized })
+
+func _viewport_capture(params: Dictionary) -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	var max_size_v = params.get("max_size", params.get("maxSize", 0))
+	var max_size := int(_num(max_size_v, 0.0))
+
+	var base: Control = _ei.get_base_control()
+	if base == null:
+		return _resp_err("Editor base control not available")
+
+	var vp := base.get_viewport()
+	if vp == null:
+		return _resp_err("Viewport not available")
+
+	var tex = vp.get_texture()
+	if tex == null:
+		return _resp_err("Viewport texture not available")
+
+	var img: Image = tex.get_image()
+	if img == null:
+		return _resp_err("Failed to capture viewport image")
+
+	if max_size > 0:
+		var w := img.get_width()
+		var h := img.get_height()
+		var m := max(w, h)
+		if m > 0 and m > max_size:
+			var scale := float(max_size) / float(m)
+			var nw := int(round(float(w) * scale))
+			var nh := int(round(float(h) * scale))
+			img.resize(max(1, nw), max(1, nh), Image.INTERPOLATE_LANCZOS)
+
+	var png: PackedByteArray = img.save_png_to_buffer()
+	var b64 := Marshalls.raw_to_base64(png)
+
+	return _resp_ok({
+		"content_type": "image/png",
+		"base64": b64,
+		"width": img.get_width(),
+		"height": img.get_height(),
+		"bytes": png.size(),
+	})
+
+func _script_editor_node() -> Node:
+	if _ei == null:
+		return null
+
+	if _ei.has_method("get_script_editor"):
+		var se = _ei.call("get_script_editor")
+		if se != null and se is Node:
+			return se as Node
+
+	var base: Control = _ei.get_base_control()
+	if base == null:
+		return null
+
+	var candidates := base.find_children("*", "ScriptEditor", true, false)
+	if candidates.size() > 0 and candidates[0] is Node:
+		return candidates[0] as Node
+	return null
+
+func _find_code_edit() -> CodeEdit:
+	var se := _script_editor_node()
+	if se == null:
+		return null
+
+	var edits := se.find_children("*", "CodeEdit", true, false)
+	for e in edits:
+		if e is CodeEdit and (e as CodeEdit).is_visible_in_tree():
+			return e as CodeEdit
+	for e in edits:
+		if e is CodeEdit:
+			return e as CodeEdit
+	return null
+
+func _script_edit(params: Dictionary) -> Dictionary:
+	if _ei == null:
+		return _resp_err("EditorInterface not available")
+
+	var script_path = str(params.get("script_path", params.get("scriptPath", "")))
+	if script_path.strip_edges().is_empty():
+		return _resp_err("script_path is required")
+
+	var res_path := _to_res_path(script_path)
+	var script_res = load(res_path)
+	if script_res == null or not (script_res is Script):
+		return _resp_err("Failed to load script", { "script_path": res_path })
+
+	# Best-effort: switch to Script screen for visibility.
+	_viewport_set_screen({ "screen_name": "Script" })
+
+	if _ei.has_method("edit_resource"):
+		_ei.call("edit_resource", script_res)
+	elif _ei.has_method("edit_script"):
+		_ei.call("edit_script", script_res)
+	else:
+		return _resp_err("No suitable editor API to open scripts (edit_resource/edit_script missing)")
+
+	var line_number_v = params.get("line_number", params.get("lineNumber", 0))
+	var line_number := int(_num(line_number_v, 0.0))
+	if line_number > 0:
+		var code_edit := _find_code_edit()
+		if code_edit != null:
+			var line0 := max(0, line_number - 1)
+			if code_edit.has_method("set_caret_line"):
+				code_edit.call("set_caret_line", line0)
+			if code_edit.has_method("set_caret_column"):
+				code_edit.call("set_caret_column", 0)
+			code_edit.grab_focus()
+
+	return _resp_ok({ "opened": true, "script_path": res_path, "line_number": line_number })
+
+func _script_add_breakpoint(params: Dictionary) -> Dictionary:
+	var script_path = str(params.get("script_path", params.get("scriptPath", "")))
+	var line_number_v = params.get("line_number", params.get("lineNumber", 0))
+	var line_number := int(_num(line_number_v, 0.0))
+	if script_path.strip_edges().is_empty() or line_number <= 0:
+		return _resp_err("script_path and line_number (>0) are required")
+
+	var open_resp = _script_edit({ "script_path": script_path, "line_number": line_number })
+	if not bool(open_resp.get("ok", false)):
+		return open_resp
+
+	var code_edit := _find_code_edit()
+	if code_edit == null:
+		return _resp_err("CodeEdit not available (script editor not ready)")
+
+	var line0 := max(0, line_number - 1)
+	if code_edit.has_method("set_line_as_breakpoint"):
+		code_edit.call("set_line_as_breakpoint", line0, true)
+	elif code_edit.has_method("set_breakpoint"):
+		code_edit.call("set_breakpoint", line0, true)
+	else:
+		return _resp_err("Breakpoint API not available on CodeEdit", { "code_edit_type": code_edit.get_class() })
+
+	var is_set := false
+	if code_edit.has_method("is_line_breakpointed"):
+		is_set = bool(code_edit.call("is_line_breakpointed", line0))
+
+	return _resp_ok({
+		"breakpoint": true,
+		"script_path": _to_res_path(script_path),
+		"line_number": line_number,
+		"confirmed": is_set,
+	})
+
 func _open_scene(params: Dictionary) -> Dictionary:
-	var p = String(params.get("path", ""))
+	var p = str(params.get("path", ""))
 	if p.is_empty():
 		return _resp_err("path is required")
 
@@ -473,7 +835,7 @@ func _open_scene(params: Dictionary) -> Dictionary:
 
 func _save_scene(params: Dictionary) -> Dictionary:
 	if params.has("path"):
-		var p = String(params.get("path", ""))
+		var p = str(params.get("path", ""))
 		if p.is_empty():
 			return _resp_err("path must be a non-empty string")
 		var res_path = _to_res_path(p)
@@ -491,19 +853,27 @@ func _get_current_scene() -> Dictionary:
 	var root = _scene_root()
 	if root == null:
 		return _resp_err("No edited scene")
-	return _resp_ok({ "path": root.scene_file_path, "name": root.name, "class": root.get_class(), "instance_id": root.get_instance_id() })
+	return _resp_ok({
+		"path": root.scene_file_path,
+		"name": root.name,
+		"class": root.get_class(),
+		"instance_id": root.get_instance_id(),
+		"instance_id_str": str(root.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(root),
+		"unique_name": _unique_name_str(root),
+	})
 
 func _list_open_scenes() -> Dictionary:
 	var scenes = _ei.get_open_scenes()
 	var out: Array = []
 	for s in scenes:
-		out.append(String(s))
+		out.append(str(s))
 	return _resp_ok({ "scenes": out })
 
 func _begin_action(params: Dictionary) -> Dictionary:
 	if _action_open:
 		return _resp_err("An undo action is already open. Call commit_action first.")
-	var name = String(params.get("name", params.get("action_name", "godot_mcp:batch")))
+	var name = str(params.get("name", params.get("action_name", "godot_mcp:batch")))
 	if name.strip_edges().is_empty():
 		return _resp_err("name is required")
 	_create_action(name)
@@ -537,9 +907,11 @@ func _ensure_action(name: String) -> bool:
 
 func _create_action(name: String) -> void:
 	var root = _scene_root()
-	if root != null:
-		_undo.create_action(name, 0, root)
+	if root != null and _undo.get_class() == "EditorUndoRedoManager":
+		# Godot 4: use scene root as context to automatically pick the correct history.
+		_undo.create_action(name, UndoRedo.MERGE_DISABLE, root)
 	else:
+		# Godot 3 or no scene root: global history.
 		_undo.create_action(name)
 
 func _maybe_commit(auto_commit: bool) -> void:
@@ -547,9 +919,9 @@ func _maybe_commit(auto_commit: bool) -> void:
 		_undo.commit_action()
 
 func _add_node(params: Dictionary) -> Dictionary:
-	var parent_path = String(params.get("parent_path", params.get("parentPath", "root")))
-	var node_type = String(params.get("type", params.get("node_type", params.get("nodeType", ""))))
-	var node_name = String(params.get("name", params.get("node_name", params.get("nodeName", ""))))
+	var parent_path = str(params.get("parent_path", params.get("parentPath", "root")))
+	var node_type = str(params.get("type", params.get("node_type", params.get("nodeType", ""))))
+	var node_name = str(params.get("name", params.get("node_name", params.get("nodeName", ""))))
 	var props_v = params.get("props", params.get("properties", {}))
 	var props: Dictionary = props_v if typeof(props_v) == TYPE_DICTIONARY else {}
 
@@ -575,7 +947,7 @@ func _add_node(params: Dictionary) -> Dictionary:
 
 	(node as Node).name = node_name
 	for k in props.keys():
-		(node as Node).set(String(k), _json_to_variant(props[k]))
+		(node as Node).set(str(k), _json_to_variant(props[k]))
 
 	var auto_commit = _ensure_action("godot_mcp:add_node")
 	_undo.force_fixed_history()
@@ -589,18 +961,20 @@ func _add_node(params: Dictionary) -> Dictionary:
 	var requested_path := _join_node_path(parent_path, node_name)
 	var unique_name := ""
 	if _is_unique_name_in_owner(node as Node):
-		unique_name = "%" + String((node as Node).name)
+		unique_name = "%" + str((node as Node).name)
 	return _resp_ok({
 		"added": true,
 		"type": node_type,
 		"name": node_name,
 		"node_path": requested_path,
 		"instance_id": (node as Node).get_instance_id(),
+		"instance_id_str": str((node as Node).get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node as Node),
 		"unique_name": unique_name,
 	})
 
 func _remove_node(params: Dictionary) -> Dictionary:
-	var node_path = String(params.get("node_path", params.get("nodePath", "")))
+	var node_path = str(params.get("node_path", params.get("nodePath", "")))
 	if node_path.is_empty():
 		return _resp_err("node_path is required")
 
@@ -629,12 +1003,14 @@ func _remove_node(params: Dictionary) -> Dictionary:
 		"removed": true,
 		"node_path": node_path,
 		"instance_id": node.get_instance_id(),
+		"instance_id_str": str(node.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node),
 		"unique_name": _unique_name_str(node),
 	})
 
 func _duplicate_node(params: Dictionary) -> Dictionary:
-	var node_path = String(params.get("node_path", params.get("nodePath", "")))
-	var new_name = String(params.get("new_name", params.get("newName", "")))
+	var node_path = str(params.get("node_path", params.get("nodePath", "")))
+	var new_name = str(params.get("new_name", params.get("newName", "")))
 	if node_path.is_empty():
 		return _resp_err("node_path is required")
 
@@ -658,7 +1034,7 @@ func _duplicate_node(params: Dictionary) -> Dictionary:
 
 	var desired := new_name.strip_edges()
 	if desired.is_empty():
-		desired = String(node.name) + "_copy"
+		desired = str(node.name) + "_copy"
 	var final_name := _unique_child_name(parent, desired)
 	(dup as Node).name = final_name
 
@@ -681,13 +1057,15 @@ func _duplicate_node(params: Dictionary) -> Dictionary:
 			"name": final_name,
 			"node_path": actual_path if not actual_path.is_empty() else planned_path,
 			"instance_id": (dup as Node).get_instance_id(),
+			"instance_id_str": str((dup as Node).get_instance_id()),
+			"unique_name_in_owner": _is_unique_name_in_owner(dup as Node),
 			"unique_name": _unique_name_str(dup as Node),
 		},
 	})
 
 func _reparent_node(params: Dictionary) -> Dictionary:
-	var node_path = String(params.get("node_path", params.get("nodePath", "")))
-	var new_parent_path = String(params.get("new_parent_path", params.get("newParentPath", "")))
+	var node_path = str(params.get("node_path", params.get("nodePath", "")))
+	var new_parent_path = str(params.get("new_parent_path", params.get("newParentPath", "")))
 	var index_v = params.get("index", params.get("new_index", params.get("newIndex", null)))
 	if node_path.is_empty() or new_parent_path.is_empty():
 		return _resp_err("node_path and new_parent_path are required")
@@ -716,8 +1094,12 @@ func _reparent_node(params: Dictionary) -> Dictionary:
 	var index := -1
 	if typeof(index_v) == TYPE_INT:
 		index = int(index_v)
-	elif typeof(index_v) == TYPE_STRING and String(index_v).is_valid_int():
-		index = int(String(index_v))
+	elif typeof(index_v) == TYPE_FLOAT:
+		var f := float(index_v)
+		if f == floor(f):
+			index = int(f)
+	elif typeof(index_v) == TYPE_STRING and str(index_v).is_valid_int():
+		index = int(str(index_v))
 
 	var auto_commit = _ensure_action("godot_mcp:reparent_node")
 	_undo.add_do_method(old_parent, "remove_child", node)
@@ -733,13 +1115,15 @@ func _reparent_node(params: Dictionary) -> Dictionary:
 	_maybe_commit(auto_commit)
 
 	var new_parent_resolved := _node_path_str(new_parent)
-	var planned_path := _join_node_path(new_parent_resolved, String(node.name))
+	var planned_path := _join_node_path(new_parent_resolved, str(node.name))
 	var actual_path := _node_path_str(node)
 	return _resp_ok({
 		"reparented": true,
 		"node": {
 			"node_path": actual_path if not actual_path.is_empty() else planned_path,
 			"instance_id": node.get_instance_id(),
+			"instance_id_str": str(node.get_instance_id()),
+			"unique_name_in_owner": _is_unique_name_in_owner(node),
 			"name": node.name,
 			"class": node.get_class(),
 			"unique_name": _unique_name_str(node),
@@ -751,9 +1135,9 @@ func _reparent_node(params: Dictionary) -> Dictionary:
 	})
 
 func _instance_scene(params: Dictionary) -> Dictionary:
-	var scene_path = String(params.get("scene_path", params.get("scenePath", "")))
-	var parent_path = String(params.get("parent_path", params.get("parentPath", "root")))
-	var node_name = String(params.get("name", params.get("node_name", params.get("nodeName", ""))))
+	var scene_path = str(params.get("scene_path", params.get("scenePath", "")))
+	var parent_path = str(params.get("parent_path", params.get("parentPath", "root")))
+	var node_name = str(params.get("name", params.get("node_name", params.get("nodeName", ""))))
 	var props_v = params.get("props", params.get("properties", {}))
 	var props: Dictionary = props_v if typeof(props_v) == TYPE_DICTIONARY else {}
 	if scene_path.strip_edges().is_empty():
@@ -786,7 +1170,7 @@ func _instance_scene(params: Dictionary) -> Dictionary:
 	(inst as Node).name = final_name
 
 	for k in props.keys():
-		(inst as Node).set(String(k), _json_to_variant(props[k]))
+		(inst as Node).set(str(k), _json_to_variant(props[k]))
 
 	var auto_commit = _ensure_action("godot_mcp:instance_scene")
 	_undo.force_fixed_history()
@@ -806,6 +1190,8 @@ func _instance_scene(params: Dictionary) -> Dictionary:
 		"node": {
 			"node_path": actual_path if not actual_path.is_empty() else planned_path,
 			"instance_id": (inst as Node).get_instance_id(),
+			"instance_id_str": str((inst as Node).get_instance_id()),
+			"unique_name_in_owner": _is_unique_name_in_owner(inst as Node),
 			"name": final_name,
 			"class": (inst as Node).get_class(),
 			"unique_name": _unique_name_str(inst as Node),
@@ -813,8 +1199,8 @@ func _instance_scene(params: Dictionary) -> Dictionary:
 	})
 
 func _set_property(params: Dictionary) -> Dictionary:
-	var node_path = String(params.get("node_path", params.get("nodePath", "")))
-	var prop = String(params.get("property", ""))
+	var node_path = str(params.get("node_path", params.get("nodePath", "")))
+	var prop = str(params.get("property", ""))
 	if node_path.is_empty() or prop.is_empty():
 		return _resp_err("node_path and property are required")
 
@@ -834,13 +1220,15 @@ func _set_property(params: Dictionary) -> Dictionary:
 		"set": true,
 		"node_path": node_path,
 		"instance_id": node.get_instance_id(),
+		"instance_id_str": str(node.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node),
 		"unique_name": _unique_name_str(node),
 		"property": prop,
 	})
 
 func _get_property(params: Dictionary) -> Dictionary:
-	var node_path = String(params.get("node_path", params.get("nodePath", "")))
-	var prop = String(params.get("property", ""))
+	var node_path = str(params.get("node_path", params.get("nodePath", "")))
+	var prop = str(params.get("property", ""))
 	if node_path.is_empty() or prop.is_empty():
 		return _resp_err("node_path and property are required")
 
@@ -851,15 +1239,17 @@ func _get_property(params: Dictionary) -> Dictionary:
 	return _resp_ok({
 		"node_path": node_path,
 		"instance_id": node.get_instance_id(),
+		"instance_id_str": str(node.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node),
 		"unique_name": _unique_name_str(node),
 		"value": _variant_to_json(node.get(prop)),
 	})
 
 func _connect_signal(params: Dictionary) -> Dictionary:
-	var from_path = String(params.get("from_node_path", params.get("fromNodePath", "")))
-	var to_path = String(params.get("to_node_path", params.get("toNodePath", "")))
-	var signal_name_s = String(params.get("signal", ""))
-	var method_s = String(params.get("method", ""))
+	var from_path = str(params.get("from_node_path", params.get("fromNodePath", "")))
+	var to_path = str(params.get("to_node_path", params.get("toNodePath", "")))
+	var signal_name_s = str(params.get("signal", ""))
+	var method_s = str(params.get("method", ""))
 	if from_path.is_empty() or to_path.is_empty() or signal_name_s.is_empty() or method_s.is_empty():
 		return _resp_err("from_node_path, signal, to_node_path, method are required")
 
@@ -890,10 +1280,10 @@ func _connect_signal(params: Dictionary) -> Dictionary:
 	})
 
 func _disconnect_signal(params: Dictionary) -> Dictionary:
-	var from_path = String(params.get("from_node_path", params.get("fromNodePath", "")))
-	var to_path = String(params.get("to_node_path", params.get("toNodePath", "")))
-	var signal_name_s = String(params.get("signal", ""))
-	var method_s = String(params.get("method", ""))
+	var from_path = str(params.get("from_node_path", params.get("fromNodePath", "")))
+	var to_path = str(params.get("to_node_path", params.get("toNodePath", "")))
+	var signal_name_s = str(params.get("signal", ""))
+	var method_s = str(params.get("method", ""))
 	if from_path.is_empty() or to_path.is_empty() or signal_name_s.is_empty() or method_s.is_empty():
 		return _resp_err("from_node_path, signal, to_node_path, method are required")
 
@@ -939,9 +1329,9 @@ func _filesystem_reimport_files(params: Dictionary) -> Dictionary:
 	for f in files:
 		if typeof(f) != TYPE_STRING:
 			continue
-		var rp = _to_res_path(String(f))
+		var rp = _to_res_path(str(f))
 		if rp.is_empty():
-			return _resp_err("Invalid path (must be res:// or inside project root)", { "path": String(f) })
+			return _resp_err("Invalid path (must be res:// or inside project root)", { "path": str(f) })
 		res_files.append(rp)
 
 	fs.reimport_files(res_files)
@@ -954,16 +1344,16 @@ func _blocked_target(target_type: String, target_id: String) -> bool:
 	return id == "os" or id == "projectsettings" or id == "fileaccess"
 
 func _generic_call(params: Dictionary) -> Dictionary:
-	var target_type = String(params.get("target_type", params.get("targetType", "")))
+	var target_type = str(params.get("target_type", params.get("targetType", "")))
 	var target_id = params.get("target_id", params.get("targetId", ""))
-	var method = String(params.get("method", ""))
+	var method = str(params.get("method", ""))
 	var args_v = params.get("args", [])
 	var args: Array = args_v if typeof(args_v) == TYPE_ARRAY else []
 
 	if target_type.is_empty() or method.is_empty():
 		return _resp_err("target_type and method are required")
 
-	if _blocked_target(target_type, String(target_id)) and not _dangerous_allowed():
+	if _blocked_target(target_type, str(target_id)) and not _dangerous_allowed():
 		return _resp_err("Dangerous RPC blocked. Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.", { "target_type": target_type, "target_id": target_id, "method": method })
 
 	var target = _get_target_object(target_type, target_id, params)
@@ -979,13 +1369,13 @@ func _generic_call(params: Dictionary) -> Dictionary:
 	return _resp_ok({ "result": _variant_to_json(result) })
 
 func _generic_set(params: Dictionary) -> Dictionary:
-	var target_type = String(params.get("target_type", params.get("targetType", "")))
+	var target_type = str(params.get("target_type", params.get("targetType", "")))
 	var target_id = params.get("target_id", params.get("targetId", ""))
-	var prop = String(params.get("property", ""))
+	var prop = str(params.get("property", ""))
 	if target_type.is_empty() or prop.is_empty():
 		return _resp_err("target_type and property are required")
 
-	if _blocked_target(target_type, String(target_id)) and not _dangerous_allowed():
+	if _blocked_target(target_type, str(target_id)) and not _dangerous_allowed():
 		return _resp_err("Dangerous RPC blocked. Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.", { "target_type": target_type, "target_id": target_id, "property": prop })
 
 	var target = _get_target_object(target_type, target_id, params)
@@ -996,13 +1386,13 @@ func _generic_set(params: Dictionary) -> Dictionary:
 	return _resp_ok({ "set": true })
 
 func _generic_get(params: Dictionary) -> Dictionary:
-	var target_type = String(params.get("target_type", params.get("targetType", "")))
+	var target_type = str(params.get("target_type", params.get("targetType", "")))
 	var target_id = params.get("target_id", params.get("targetId", ""))
-	var prop = String(params.get("property", ""))
+	var prop = str(params.get("property", ""))
 	if target_type.is_empty() or prop.is_empty():
 		return _resp_err("target_type and property are required")
 
-	if _blocked_target(target_type, String(target_id)) and not _dangerous_allowed():
+	if _blocked_target(target_type, str(target_id)) and not _dangerous_allowed():
 		return _resp_err("Dangerous RPC blocked. Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.", { "target_type": target_type, "target_id": target_id, "property": prop })
 
 	var target = _get_target_object(target_type, target_id, params)
@@ -1012,7 +1402,7 @@ func _generic_get(params: Dictionary) -> Dictionary:
 	return _resp_ok({ "value": _variant_to_json(target.get(prop)) })
 
 func _inspect_class(params: Dictionary) -> Dictionary:
-	var class_name_value = String(params.get("class_name", params.get("className", "")))
+	var class_name_value = str(params.get("class_name", params.get("className", "")))
 	if class_name_value.is_empty():
 		return _resp_err("class_name is required")
 
@@ -1030,7 +1420,7 @@ func _inspect_class(params: Dictionary) -> Dictionary:
 	})
 
 func _inspect_object(params: Dictionary) -> Dictionary:
-	var node_id = String(params.get("node_path", params.get("nodePath", params.get("node_id", params.get("nodeId", "")))))
+	var node_id = str(params.get("node_path", params.get("nodePath", params.get("node_id", params.get("nodeId", "")))))
 	var instance_id = _get_instance_id(params, ["instance_id", "instanceId"])
 	var props_v = params.get("property_names", params.get("propertyNames", params.get("properties", [])))
 	var prop_names: Array = props_v if typeof(props_v) == TYPE_ARRAY else []
@@ -1052,7 +1442,7 @@ func _inspect_object(params: Dictionary) -> Dictionary:
 		for p in prop_names:
 			if typeof(p) != TYPE_STRING:
 				continue
-			var key := String(p)
+			var key := str(p)
 			if key.strip_edges().is_empty():
 				continue
 			property_values[key] = _variant_to_json(node.get(key))
@@ -1060,6 +1450,8 @@ func _inspect_object(params: Dictionary) -> Dictionary:
 	return _resp_ok({
 		"node_id": node_id,
 		"instance_id": node.get_instance_id(),
+		"instance_id_str": str(node.get_instance_id()),
+		"unique_name_in_owner": _is_unique_name_in_owner(node),
 		"class": node.get_class(),
 		"name": node.name,
 		"node_path": _node_path_str(node),
@@ -1071,7 +1463,7 @@ func _inspect_object(params: Dictionary) -> Dictionary:
 	})
 
 func _selection_select_node(params: Dictionary) -> Dictionary:
-	var node_id = String(params.get("node_path", params.get("nodePath", params.get("node_id", params.get("nodeId", "")))))
+	var node_id = str(params.get("node_path", params.get("nodePath", params.get("node_id", params.get("nodeId", "")))))
 	var instance_id = _get_instance_id(params, ["instance_id", "instanceId"])
 	var additive_v = params.get("additive", false)
 	var additive := bool(additive_v)
@@ -1130,16 +1522,20 @@ func _scene_tree_query(params: Dictionary) -> Dictionary:
 
 	var include_root_v = params.get("include_root", params.get("includeRoot", false))
 	var include_root := bool(include_root_v)
-	var name_exact = String(params.get("name", ""))
-	var name_contains = String(params.get("name_contains", params.get("nameContains", "")))
-	var class_name_value = String(params.get("class_name", params.get("className", "")))
-	var group = String(params.get("group", ""))
+	var name_exact = str(params.get("name", ""))
+	var name_contains = str(params.get("name_contains", params.get("nameContains", "")))
+	var class_name_value = str(params.get("class_name", params.get("className", "")))
+	var group = str(params.get("group", ""))
 	var limit_v = params.get("limit", params.get("max_results", params.get("maxResults", 50)))
 	var limit := 50
 	if typeof(limit_v) == TYPE_INT:
 		limit = max(1, int(limit_v))
-	elif typeof(limit_v) == TYPE_STRING and String(limit_v).is_valid_int():
-		limit = max(1, int(String(limit_v)))
+	elif typeof(limit_v) == TYPE_FLOAT:
+		var f := float(limit_v)
+		if f == floor(f):
+			limit = max(1, int(f))
+	elif typeof(limit_v) == TYPE_STRING and str(limit_v).is_valid_int():
+		limit = max(1, int(str(limit_v)))
 
 	var matches: Array = []
 	var stack: Array = [root]
@@ -1151,14 +1547,24 @@ func _scene_tree_query(params: Dictionary) -> Dictionary:
 
 		var should_check := include_root or node != root
 		if should_check:
-			if not name_exact.strip_edges().is_empty() and String(node.name) != name_exact:
+			if not name_exact.strip_edges().is_empty() and str(node.name) != name_exact:
 				pass
-			elif not name_contains.strip_edges().is_empty() and String(node.name).find(name_contains) == -1:
+			elif not name_contains.strip_edges().is_empty() and str(node.name).find(name_contains) == -1:
 				pass
 			elif not class_name_value.strip_edges().is_empty() and not node.is_class(class_name_value):
 				pass
-			elif not group.strip_edges().is_empty() and not node.is_in_group(group):
-				pass
+			elif not group.strip_edges().is_empty():
+				var g := group.strip_edges()
+				var in_group := node.is_in_group(g)
+				if not in_group:
+					var groups = node.get_groups()
+					if typeof(groups) == TYPE_ARRAY:
+						for gg in groups:
+							if str(gg) == g:
+								in_group = true
+								break
+				if not in_group:
+					pass
 			else:
 				matches.append(_node_info(node))
 				if matches.size() >= limit:

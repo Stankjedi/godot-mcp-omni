@@ -18,6 +18,7 @@ import { ValidationError, hasTraversalSegment } from './validation.js';
 import { createEditorToolHandlers } from './tools/editor.js';
 import { createHeadlessToolHandlers } from './tools/headless.js';
 import { createProjectToolHandlers } from './tools/project.js';
+import { createUnifiedToolHandlers } from './tools/unified.js';
 
 import type { EditorBridgeClient } from './editor_bridge_client.js';
 import type { ServerContext } from './tools/context.js';
@@ -243,8 +244,8 @@ const TOOL_DEFINITIONS = [
           description: 'Node path relative to edited scene root (e.g., "root")',
         },
         instanceId: {
-          type: 'number',
-          description: 'Optional: node instance ID',
+          description: 'Optional: node instance ID (number or integer string)',
+          anyOf: [{ type: 'number' }, { type: 'string' }],
         },
         additive: {
           type: 'boolean',
@@ -266,7 +267,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'godot_scene_tree_query',
     description:
-      'Query nodes in the edited scene by name/class/group (returns node paths + instance IDs).',
+      'Query nodes in the edited scene by name/class/group (returns node paths + instance IDs + unique names).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -334,7 +335,8 @@ const TOOL_DEFINITIONS = [
         },
         index: {
           type: 'number',
-          description: 'Optional: new child index under the new parent',
+          description:
+            'Optional: new child index under the new parent (0 allowed)',
         },
         timeoutMs: {
           type: 'number',
@@ -626,35 +628,6 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'export_mesh_library',
-    description: 'Export a 3D scene as a MeshLibrary resource for GridMap',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        projectPath: {
-          type: 'string',
-          description: 'Path to the Godot project directory',
-        },
-        scenePath: {
-          type: 'string',
-          description: 'Path to the 3D scene file (relative to project)',
-        },
-        outputPath: {
-          type: 'string',
-          description:
-            'Path where the MeshLibrary resource will be saved (relative to project)',
-        },
-        meshItemNames: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Optional: Names of mesh items to include (default: all)',
-        },
-      },
-      required: ['projectPath', 'scenePath', 'outputPath'],
-    },
-  },
-  {
     name: 'save_scene',
     description: 'Save a scene (optionally as a new file)',
     inputSchema: {
@@ -696,18 +669,156 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'update_project_uids',
+    name: 'godot_scene_manager',
     description:
-      'Update UID references in a Godot project by resaving resources (Godot 4.4+)',
+      'Unified scene/node editing tool (multi-action; uses editor bridge when connected, otherwise headless when possible).',
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: {
+        action: {
           type: 'string',
-          description: 'Path to the Godot project directory',
+          enum: [
+            'create',
+            'duplicate',
+            'reparent',
+            'instance',
+            'remove',
+            'undo',
+            'redo',
+          ],
         },
+        projectPath: { type: 'string', description: 'Required for headless create' },
+        scenePath: { type: 'string', description: 'Required for headless create' },
+        nodeType: { type: 'string' },
+        nodeName: { type: 'string' },
+        parentNodePath: { type: 'string' },
+        nodePath: { type: 'string' },
+        newName: { type: 'string' },
+        newParentPath: { type: 'string' },
+        index: { type: 'number' },
+        props: { type: 'object' },
+        timeoutMs: { type: 'number' },
       },
-      required: ['projectPath'],
+      required: ['action'],
+    },
+  },
+  {
+    name: 'godot_inspector_manager',
+    description:
+      'Unified inspector/query tool (multi-action; uses editor bridge; connect_signal supports headless fallback when projectPath+scenePath provided).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [
+            'query',
+            'inspect',
+            'select',
+            'connect_signal',
+            'disconnect_signal',
+            'property_list',
+          ],
+        },
+        // Common editor args
+        timeoutMs: { type: 'number' },
+        // query
+        name: { type: 'string' },
+        nameContains: { type: 'string' },
+        className: { type: 'string' },
+        group: { type: 'string' },
+        includeRoot: { type: 'boolean' },
+        limit: { type: 'number' },
+        // inspect/property_list
+        query_json: { anyOf: [{ type: 'object' }, { type: 'string' }] },
+        nodePath: { type: 'string' },
+        instanceId: { anyOf: [{ type: 'number' }, { type: 'string' }] },
+        // select
+        additive: { type: 'boolean' },
+        clear: { type: 'boolean' },
+        // signals
+        fromNodePath: { type: 'string' },
+        toNodePath: { type: 'string' },
+        signal: { type: 'string' },
+        method: { type: 'string' },
+        // headless fallback for connect_signal
+        projectPath: { type: 'string' },
+        scenePath: { type: 'string' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'godot_asset_manager',
+    description:
+      'Unified asset/resource tool (multi-action; combines UID, headless load_texture, and editor filesystem scan/reimport with headless import fallback).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['load_texture', 'get_uid', 'scan', 'reimport', 'auto_import_check'],
+        },
+        projectPath: { type: 'string' },
+        // load_texture (headless load_sprite wrapper)
+        scenePath: { type: 'string' },
+        nodePath: { type: 'string' },
+        texturePath: { type: 'string' },
+        // get_uid
+        filePath: { type: 'string' },
+        // scan/reimport
+        files: { type: 'array', items: { type: 'string' } },
+        paths: { type: 'array', items: { type: 'string' } },
+        forceReimport: { type: 'boolean' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'godot_workspace_manager',
+    description:
+      'Unified workspace tool (multi-action; launches/connects editor, runs/stops/restarts via editor when connected otherwise headless run_project).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['launch', 'connect', 'run', 'stop', 'open_scene', 'save_all', 'restart'],
+        },
+        mode: {
+          type: 'string',
+          description: 'Optional: "auto" (default) or "headless"',
+        },
+        projectPath: { type: 'string' },
+        godotPath: { type: 'string' },
+        token: { type: 'string' },
+        host: { type: 'string' },
+        port: { type: 'number' },
+        timeoutMs: { type: 'number' },
+        scene: { type: 'string' },
+        scenePath: { type: 'string' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'godot_editor_view_manager',
+    description:
+      'Unified editor UI tool (multi-action; requires editor bridge).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['capture_viewport', 'switch_screen', 'edit_script', 'add_breakpoint'],
+        },
+        timeoutMs: { type: 'number' },
+        maxSize: { type: 'number' },
+        screenName: { type: 'string' },
+        scriptPath: { type: 'string' },
+        lineNumber: { type: 'number' },
+      },
+      required: ['action'],
     },
   },
 ] as const;
@@ -881,10 +992,21 @@ export class GodotMcpOmniServer {
       },
     };
 
+    const headlessHandlers = createHeadlessToolHandlers(ctx);
+    const editorHandlers = createEditorToolHandlers(ctx);
+    const projectHandlers = createProjectToolHandlers(ctx);
+
+    const unifiedHandlers = createUnifiedToolHandlers(ctx, {
+      ...headlessHandlers,
+      ...editorHandlers,
+      ...projectHandlers,
+    });
+
     return {
-      ...createHeadlessToolHandlers(ctx),
-      ...createEditorToolHandlers(ctx),
-      ...createProjectToolHandlers(ctx),
+      ...headlessHandlers,
+      ...editorHandlers,
+      ...projectHandlers,
+      ...unifiedHandlers,
     };
   }
 

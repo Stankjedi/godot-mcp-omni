@@ -297,6 +297,16 @@ export function assertEditorRpcAllowed(
     return;
   }
 
+  if (m === 'script.edit' || m === 'script.add_breakpoint') {
+    const p = getNestedStringParam(params, [
+      'script_path',
+      'scriptPath',
+      'path',
+    ]);
+    if (typeof p === 'string' && p.length > 0) resolveInsideProject(projectPath, p);
+    return;
+  }
+
   if (m === 'filesystem.scan') {
     // no path args
     return;

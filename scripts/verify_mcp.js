@@ -223,18 +223,6 @@ async function main() {
       }),
     );
 
-    await runStep('export_mesh_library', async () =>
-      client.callToolOrThrow('export_mesh_library', {
-        projectPath,
-        scenePath: '.godot_mcp/verify/MeshScene.tscn',
-        outputPath: '.godot_mcp/verify/MeshLibrary.tres',
-      }),
-    );
-
-    await runStep('update_project_uids', async () =>
-      client.callToolOrThrow('update_project_uids', { projectPath }),
-    );
-
     await runStep('get_uid', async () =>
       client.callToolOrThrow('get_uid', {
         projectPath,

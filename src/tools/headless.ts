@@ -383,45 +383,77 @@ export function createHeadlessToolHandlers(
       }
 
       try {
-        return await runHeadlessOp(
+        const first = await runHeadlessOp(
           ctx,
           'load_sprite',
           { scenePath, nodePath, texturePath },
           projectPath,
         );
+        if (first.ok) return first;
+
+        const lowerTexturePath = texturePath.trim().toLowerCase();
+        const looksSvg = lowerTexturePath.endsWith('.svg');
+        const detailsObj =
+          first.details && typeof first.details === 'object' && !Array.isArray(first.details)
+            ? (first.details as Record<string, unknown>)
+            : {};
+        const hintSuggestions = Array.isArray(detailsObj.suggestions)
+          ? (detailsObj.suggestions as unknown[])
+              .filter((s): s is string => typeof s === 'string')
+              .map((s) => s.toLowerCase())
+          : [];
+        const hintedImport = hintSuggestions.some((s) => s.includes('import'));
+        const logText = (first.logs ?? []).join('\n').toLowerCase();
+        const mentionedNotImported =
+          logText.includes('not imported') || first.summary.toLowerCase().includes('not imported');
+
+        if (!looksSvg || (!hintedImport && !mentionedNotImported)) return first;
+
+        const godotPath = await ctx.ensureGodotPath();
+        const importArgs = ['--headless', '--path', projectPath, '--import'];
+        const importResult = await execGodot(godotPath, importArgs);
+        const importLogs = [
+          ...splitLines(importResult.stdout).map((l) => `[import] ${l}`),
+          ...splitLines(importResult.stderr).map((l) => `[import][stderr] ${l}`),
+        ];
+        if (importResult.exitCode !== 0) {
+          return {
+            ...first,
+            details: {
+              ...detailsObj,
+              suggestions: [
+                ...(Array.isArray(detailsObj.suggestions)
+                  ? (detailsObj.suggestions as unknown[]).filter(
+                      (s): s is string => typeof s === 'string',
+                    )
+                  : []),
+                'Try running godot_import_project_assets, then retry load_sprite.',
+              ],
+              autoImportAttempted: true,
+              importExitCode: importResult.exitCode,
+            },
+            logs: [...(first.logs ?? []), ...importLogs],
+          };
+        }
+
+        const second = await runHeadlessOp(
+          ctx,
+          'load_sprite',
+          { scenePath, nodePath, texturePath },
+          projectPath,
+        );
+        return {
+          ...second,
+          details: {
+            ...(second.details ?? {}),
+            autoImportAttempted: true,
+          },
+          logs: [...importLogs, ...(second.logs ?? [])],
+        };
       } catch (error) {
         return {
           ok: false,
           summary: `Failed to load sprite: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    },
-
-    export_mesh_library: async (args: unknown): Promise<ToolResponse> => {
-      const argsObj = asRecord(args, 'args');
-      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
-      const scenePath = asOptionalString(argsObj.scenePath, 'scenePath');
-      const outputPath = asOptionalString(argsObj.outputPath, 'outputPath');
-      if (!projectPath || !scenePath || !outputPath) {
-        return {
-          ok: false,
-          summary: 'projectPath, scenePath, outputPath are required',
-        };
-      }
-
-      try {
-        const params: Record<string, unknown> = { scenePath, outputPath };
-        if (argsObj.meshItemNames) params.meshItemNames = argsObj.meshItemNames;
-        return await runHeadlessOp(
-          ctx,
-          'export_mesh_library',
-          params,
-          projectPath,
-        );
-      } catch (error) {
-        return {
-          ok: false,
-          summary: `Failed to export mesh library: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     },
@@ -476,41 +508,6 @@ export function createHeadlessToolHandlers(
         return {
           ok: false,
           summary: `Failed to get UID: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    },
-
-    update_project_uids: async (args: unknown): Promise<ToolResponse> => {
-      const argsObj = asRecord(args, 'args');
-      const projectPath = asOptionalString(argsObj.projectPath, 'projectPath');
-      if (!projectPath)
-        return { ok: false, summary: 'projectPath is required' };
-
-      try {
-        ctx.assertValidProject(projectPath);
-
-        const godotPath = await ctx.ensureGodotPath();
-        const { stdout: versionStdout } = await execGodot(godotPath, [
-          '--version',
-        ]);
-        const version = versionStdout.trim();
-        if (!isGodot44OrLater(version)) {
-          return {
-            ok: false,
-            summary: `UIDs require Godot 4.4+. Current: ${version}`,
-          };
-        }
-
-        return await runHeadlessOp(
-          ctx,
-          'resave_resources',
-          { projectPath },
-          projectPath,
-        );
-      } catch (error) {
-        return {
-          ok: false,
-          summary: `Failed to update project UIDs: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     },

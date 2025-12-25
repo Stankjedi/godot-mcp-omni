@@ -1,6 +1,8 @@
 #!/usr/bin/env -S godot --headless --script
 extends SceneTree
 
+const JSON_TYPE_KEY := "$type"
+
 var debug_mode := false
 var _logs: Array[String] = []
 
@@ -47,6 +49,8 @@ func _dispatch(operation: String, params: Dictionary) -> Dictionary:
 	match operation:
 		"batch":
 			return batch(params)
+		"get_godot_version":
+			return get_godot_version(params)
 		"create_scene":
 			return create_scene(params)
 		"add_node":
@@ -104,6 +108,191 @@ func _err(summary: String, details: Dictionary = {}) -> Dictionary:
 
 func _to_res_path(p: String) -> String:
 	return p if p.begins_with("res://") else "res://" + p
+
+func _num(v, fallback: float = 0.0) -> float:
+	match typeof(v):
+		TYPE_INT:
+			return float(v)
+		TYPE_FLOAT:
+			return float(v)
+		TYPE_STRING:
+			var s := String(v).strip_edges()
+			if s.is_valid_float():
+				return float(s)
+			if s.is_valid_int():
+				return float(int(s))
+	return fallback
+
+func _intlike(v: float) -> bool:
+	return abs(v - round(v)) <= 0.000001
+
+func _json_to_variant(value):
+	match typeof(value):
+		TYPE_ARRAY:
+			var out: Array = []
+			for v in value:
+				out.append(_json_to_variant(v))
+			return out
+		TYPE_DICTIONARY:
+			var d: Dictionary = value
+			if d.has(JSON_TYPE_KEY) and typeof(d.get(JSON_TYPE_KEY)) == TYPE_STRING:
+				var t := String(d.get(JSON_TYPE_KEY)).strip_edges()
+				match t:
+					"Vector2":
+						return Vector2(_num(d.get("x")), _num(d.get("y")))
+					"Vector2i":
+						return Vector2i(int(_num(d.get("x"))), int(_num(d.get("y"))))
+					"Vector3":
+						return Vector3(_num(d.get("x")), _num(d.get("y")), _num(d.get("z")))
+					"Vector3i":
+						return Vector3i(int(_num(d.get("x"))), int(_num(d.get("y"))), int(_num(d.get("z"))))
+					"Vector4":
+						return Vector4(_num(d.get("x")), _num(d.get("y")), _num(d.get("z")), _num(d.get("w")))
+					"Color":
+						return Color(_num(d.get("r")), _num(d.get("g")), _num(d.get("b")), _num(d.get("a"), 1.0))
+					"Rect2":
+						return Rect2(_num(d.get("x")), _num(d.get("y")), _num(d.get("w")), _num(d.get("h")))
+					"Rect2i":
+						return Rect2i(int(_num(d.get("x"))), int(_num(d.get("y"))), int(_num(d.get("w"))), int(_num(d.get("h"))))
+					"Transform2D":
+						var x_v = _json_to_variant(d.get("x", {}))
+						var y_v = _json_to_variant(d.get("y", {}))
+						var o_v = _json_to_variant(d.get("origin", {}))
+						if typeof(x_v) == TYPE_VECTOR2 and typeof(y_v) == TYPE_VECTOR2 and typeof(o_v) == TYPE_VECTOR2:
+							return Transform2D(x_v, y_v, o_v)
+					"Transform3D":
+						var basis_v = d.get("basis", {})
+						var origin_v = _json_to_variant(d.get("origin", {}))
+						if typeof(basis_v) == TYPE_DICTIONARY and typeof(origin_v) == TYPE_VECTOR3:
+							var b: Dictionary = basis_v
+							var bx_v = _json_to_variant(b.get("x", {}))
+							var by_v = _json_to_variant(b.get("y", {}))
+							var bz_v = _json_to_variant(b.get("z", {}))
+							if typeof(bx_v) == TYPE_VECTOR3 and typeof(by_v) == TYPE_VECTOR3 and typeof(bz_v) == TYPE_VECTOR3:
+								var basis := Basis(bx_v, by_v, bz_v)
+								return Transform3D(basis, origin_v)
+
+			var out_d: Dictionary = {}
+			for k in d.keys():
+				out_d[String(k)] = _json_to_variant(d[k])
+			return out_d
+		_:
+			return value
+
+func _prop_type(obj: Object, prop: String) -> int:
+	if obj == null:
+		return TYPE_NIL
+	var plist = obj.get_property_list()
+	for p in plist:
+		if typeof(p) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = p
+		if String(d.get("name", "")) == prop:
+			if d.has("type"):
+				return int(d.get("type"))
+	return TYPE_NIL
+
+func _json_to_variant_for_type(value, expected_type: int):
+	if expected_type == TYPE_INT:
+		if typeof(value) == TYPE_INT:
+			return int(value)
+		if typeof(value) == TYPE_FLOAT:
+			var f := float(value)
+			if _intlike(f):
+				return int(round(f))
+		if typeof(value) == TYPE_STRING:
+			var s := String(value).strip_edges()
+			if s.is_valid_int():
+				return int(s)
+		return value
+
+	if expected_type == TYPE_FLOAT:
+		return _num(value)
+
+	if expected_type == TYPE_VECTOR2:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 2:
+			var a: Array = value
+			return Vector2(_num(a[0]), _num(a[1]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d: Dictionary = value
+			if d.has("x") and d.has("y"):
+				return Vector2(_num(d.get("x")), _num(d.get("y")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR2I:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 2:
+			var a2: Array = value
+			return Vector2i(int(_num(a2[0])), int(_num(a2[1])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d2: Dictionary = value
+			if d2.has("x") and d2.has("y"):
+				return Vector2i(int(_num(d2.get("x"))), int(_num(d2.get("y"))))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR3:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 3:
+			var a3: Array = value
+			return Vector3(_num(a3[0]), _num(a3[1]), _num(a3[2]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d3: Dictionary = value
+			if d3.has("x") and d3.has("y") and d3.has("z"):
+				return Vector3(_num(d3.get("x")), _num(d3.get("y")), _num(d3.get("z")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR3I:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 3:
+			var a3i: Array = value
+			return Vector3i(int(_num(a3i[0])), int(_num(a3i[1])), int(_num(a3i[2])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d3i: Dictionary = value
+			if d3i.has("x") and d3i.has("y") and d3i.has("z"):
+				return Vector3i(int(_num(d3i.get("x"))), int(_num(d3i.get("y"))), int(_num(d3i.get("z"))))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR4:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 4:
+			var a4: Array = value
+			return Vector4(_num(a4[0]), _num(a4[1]), _num(a4[2]), _num(a4[3]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d4: Dictionary = value
+			if d4.has("x") and d4.has("y") and d4.has("z") and d4.has("w"):
+				return Vector4(_num(d4.get("x")), _num(d4.get("y")), _num(d4.get("z")), _num(d4.get("w")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_COLOR:
+		if typeof(value) == TYPE_ARRAY:
+			var ac: Array = value
+			if ac.size() >= 3:
+				return Color(_num(ac[0]), _num(ac[1]), _num(ac[2]), _num(ac[3], 1.0))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dc: Dictionary = value
+			if dc.has("r") and dc.has("g") and dc.has("b"):
+				return Color(_num(dc.get("r")), _num(dc.get("g")), _num(dc.get("b")), _num(dc.get("a"), 1.0))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_RECT2:
+		if typeof(value) == TYPE_ARRAY:
+			var ar: Array = value
+			if ar.size() >= 4:
+				return Rect2(_num(ar[0]), _num(ar[1]), _num(ar[2]), _num(ar[3]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dr: Dictionary = value
+			if dr.has("x") and dr.has("y") and dr.has("w") and dr.has("h"):
+				return Rect2(_num(dr.get("x")), _num(dr.get("y")), _num(dr.get("w")), _num(dr.get("h")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_RECT2I:
+		if typeof(value) == TYPE_ARRAY:
+			var ari: Array = value
+			if ari.size() >= 4:
+				return Rect2i(int(_num(ari[0])), int(_num(ari[1])), int(_num(ari[2])), int(_num(ari[3])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dri: Dictionary = value
+			if dri.has("x") and dri.has("y") and dri.has("w") and dri.has("h"):
+				return Rect2i(int(_num(dri.get("x"))), int(_num(dri.get("y"))), int(_num(dri.get("w"))), int(_num(dri.get("h"))))
+		return _json_to_variant(value)
+
+	return _json_to_variant(value)
 
 func _uid_text_from_value(value: Variant) -> String:
 	if typeof(value) == TYPE_STRING:
@@ -287,7 +476,9 @@ func add_node(params: Dictionary) -> Dictionary:
 	if params.has("properties") and typeof(params.properties) == TYPE_DICTIONARY:
 		var props: Dictionary = params.properties
 		for key in props.keys():
-			(new_node as Node).set(String(key), props[key])
+			var prop_name := String(key)
+			var expected := _prop_type(new_node as Node, prop_name)
+			(new_node as Node).set(prop_name, _json_to_variant_for_type(props[key], expected))
 
 	parent.add_child(new_node)
 	(new_node as Node).owner = scene_root
@@ -340,6 +531,15 @@ func validate_scene(params: Dictionary) -> Dictionary:
 		return _err("Failed to instantiate PackedScene", { "scene_path": scene_path })
 
 	return _ok("Scene validated", { "scene_path": scene_path })
+
+func get_godot_version(params: Dictionary) -> Dictionary:
+	var info := Engine.get_version_info()
+	var ver := ""
+	if typeof(info) == TYPE_DICTIONARY and info.has("string"):
+		ver = String(info.get("string"))
+	if ver.is_empty():
+		ver = "%d.%d" % [int(info.get("major", 0)), int(info.get("minor", 0))]
+	return _ok("Godot version", { "version": ver, "version_info": info })
 
 func load_sprite(params: Dictionary) -> Dictionary:
 	for k in ["scene_path", "node_path", "texture_path"]:
@@ -452,7 +652,9 @@ func set_node_properties(params: Dictionary) -> Dictionary:
 	var keys: Array[String] = []
 	for key in props.keys():
 		keys.append(String(key))
-		node.set(String(key), props[key])
+		var prop_name := String(key)
+		var expected := _prop_type(node, prop_name)
+		node.set(prop_name, _json_to_variant_for_type(props[key], expected))
 
 	var packed := PackedScene.new()
 	var pack_err := packed.pack(scene_root)
@@ -626,7 +828,9 @@ func create_resource(params: Dictionary) -> Dictionary:
 	if params.has("props") and typeof(params.props) == TYPE_DICTIONARY:
 		var props: Dictionary = params.props
 		for key in props.keys():
-			(res as Resource).set(String(key), props[key])
+			var prop_name := String(key)
+			var expected := _prop_type(res as Resource, prop_name)
+			(res as Resource).set(prop_name, _json_to_variant_for_type(props[key], expected))
 
 	var dir_err := _ensure_dir_for_res_path(resource_path)
 	if dir_err != OK:
