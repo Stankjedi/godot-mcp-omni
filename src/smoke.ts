@@ -20,7 +20,7 @@ async function main() {
   if (!ok) {
     throw new Error(
       `Godot executable is not valid: ${godotPath}\n` +
-        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`
+        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`,
     );
   }
 
@@ -42,7 +42,9 @@ async function main() {
       await fs.access(path.join(defaultSampleProjectPath, 'project.godot'));
       projectPath = defaultSampleProjectPath;
     } catch {
-      projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'godot-mcp-omni-smoke-'));
+      projectPath = await fs.mkdtemp(
+        path.join(os.tmpdir(), 'godot-mcp-omni-smoke-'),
+      );
       shouldCleanupProject = true;
       await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
 
@@ -55,18 +57,28 @@ async function main() {
         'config/name="godot-mcp-omni-smoke"',
         '',
       ].join('\n');
-      await fs.writeFile(path.join(projectPath, 'project.godot'), projectGodot, 'utf8');
+      await fs.writeFile(
+        path.join(projectPath, 'project.godot'),
+        projectGodot,
+        'utf8',
+      );
     }
   }
 
   try {
     await fs.access(path.join(projectPath, 'project.godot'));
   } catch {
-    throw new Error(`Not a valid Godot project (missing project.godot): ${projectPath}`);
+    throw new Error(
+      `Not a valid Godot project (missing project.godot): ${projectPath}`,
+    );
   }
 
   const server = spawn(process.execPath, [serverEntry], {
-    env: { ...process.env, GODOT_PATH: godotPath, DEBUG: debug ? 'true' : 'false' },
+    env: {
+      ...process.env,
+      GODOT_PATH: godotPath,
+      DEBUG: debug ? 'true' : 'false',
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -80,7 +92,8 @@ async function main() {
       // ignore
     }
     try {
-      if (shouldCleanupProject) await fs.rm(projectPath, { recursive: true, force: true });
+      if (shouldCleanupProject)
+        await fs.rm(projectPath, { recursive: true, force: true });
     } catch {
       // ignore
     }
@@ -92,7 +105,8 @@ async function main() {
 
   try {
     const listResp = await client.send('tools/list', {});
-    if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
+    if ('error' in listResp)
+      throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
 
     const smokeScenePath = '.godot_mcp/smoke/Smoke.tscn';
     const receiverScriptPath = '.godot_mcp/smoke/Receiver.gd';
@@ -167,8 +181,13 @@ async function main() {
     });
 
     const sceneText = String(readResp?.details?.content ?? '');
-    if (!sceneText.includes('signal="ready"') || !sceneText.includes('method="_ready"')) {
-      throw new Error(`connect_signal did not persist to scene file: ${smokeScenePath}`);
+    if (
+      !sceneText.includes('signal="ready"') ||
+      !sceneText.includes('method="_ready"')
+    ) {
+      throw new Error(
+        `connect_signal did not persist to scene file: ${smokeScenePath}`,
+      );
     }
 
     await client.callToolOrThrow('godot_headless_op', {

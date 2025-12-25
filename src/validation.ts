@@ -21,7 +21,7 @@ function fail(fieldName: string, expected: string, value: unknown): never {
   throw new ValidationError(
     fieldName,
     `Invalid field "${fieldName}": expected ${expected}, got ${receivedType}`,
-    receivedType
+    receivedType,
   );
 }
 
@@ -36,18 +36,24 @@ export function asNonEmptyString(value: unknown, fieldName: string): string {
     throw new ValidationError(
       fieldName,
       `Invalid field "${fieldName}": expected non-empty string`,
-      valueType(value)
+      valueType(value),
     );
   }
   return s;
 }
 
-export function asOptionalString(value: unknown, fieldName: string): string | undefined {
+export function asOptionalString(
+  value: unknown,
+  fieldName: string,
+): string | undefined {
   if (value === undefined || value === null) return undefined;
   return asString(value, fieldName);
 }
 
-export function asOptionalNonEmptyString(value: unknown, fieldName: string): string | undefined {
+export function asOptionalNonEmptyString(
+  value: unknown,
+  fieldName: string,
+): string | undefined {
   if (value === undefined || value === null) return undefined;
   return asNonEmptyString(value, fieldName);
 }
@@ -57,7 +63,10 @@ export function asBoolean(value: unknown, fieldName: string): boolean {
   return value;
 }
 
-export function asOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+export function asOptionalBoolean(
+  value: unknown,
+  fieldName: string,
+): boolean | undefined {
   if (value === undefined || value === null) return undefined;
   return asBoolean(value, fieldName);
 }
@@ -70,11 +79,15 @@ export function hasTraversalSegment(value: string): boolean {
 }
 
 export function asNumber(value: unknown, fieldName: string): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) fail(fieldName, 'number', value);
+  if (typeof value !== 'number' || Number.isNaN(value))
+    fail(fieldName, 'number', value);
   return value;
 }
 
-export function asOptionalNumber(value: unknown, fieldName: string): number | undefined {
+export function asOptionalNumber(
+  value: unknown,
+  fieldName: string,
+): number | undefined {
   if (value === undefined || value === null) return undefined;
   return asNumber(value, fieldName);
 }
@@ -85,28 +98,41 @@ export function asPositiveNumber(value: unknown, fieldName: string): number {
     throw new ValidationError(
       fieldName,
       `Invalid field "${fieldName}": expected positive number`,
-      valueType(value)
+      valueType(value),
     );
   }
   return n;
 }
 
-export function asOptionalPositiveNumber(value: unknown, fieldName: string): number | undefined {
+export function asOptionalPositiveNumber(
+  value: unknown,
+  fieldName: string,
+): number | undefined {
   if (value === undefined || value === null) return undefined;
   return asPositiveNumber(value, fieldName);
 }
 
-export function asRecord(value: unknown, fieldName: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(fieldName, 'object', value);
+export function asRecord(
+  value: unknown,
+  fieldName: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    fail(fieldName, 'object', value);
   return value as Record<string, unknown>;
 }
 
-export function asOptionalRecord(value: unknown, fieldName: string): Record<string, unknown> | undefined {
+export function asOptionalRecord(
+  value: unknown,
+  fieldName: string,
+): Record<string, unknown> | undefined {
   if (value === undefined || value === null) return undefined;
   return asRecord(value, fieldName);
 }
 
-export function asRecordOrJson(value: unknown, fieldName: string): Record<string, unknown> {
+export function asRecordOrJson(
+  value: unknown,
+  fieldName: string,
+): Record<string, unknown> {
   if (typeof value === 'string') {
     const trimmed = value.trim();
     try {
@@ -115,7 +141,7 @@ export function asRecordOrJson(value: unknown, fieldName: string): Record<string
       throw new ValidationError(
         fieldName,
         `Invalid field "${fieldName}": expected object or JSON object string`,
-        valueType(value)
+        valueType(value),
       );
     }
   }
@@ -125,7 +151,7 @@ export function asRecordOrJson(value: unknown, fieldName: string): Record<string
 export function asOptionalRecordOrJson(
   value: unknown,
   fieldName: string,
-  defaultValue: Record<string, unknown> = {}
+  defaultValue: Record<string, unknown> = {},
 ): Record<string, unknown> {
   if (value === undefined || value === null) return defaultValue;
   return asRecordOrJson(value, fieldName);

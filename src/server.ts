@@ -71,11 +71,15 @@ function toMcpResponse(result: ToolResponse): McpToolResponse {
 const TOOL_DEFINITIONS = [
   {
     name: 'godot_headless_op',
-    description: 'Run a headless Godot operation (godot_operations.gd) inside a project.',
+    description:
+      'Run a headless Godot operation (godot_operations.gd) inside a project.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
         operation: { type: 'string', description: 'Operation name' },
         params: {
           description: 'JSON parameters (object) or a JSON string',
@@ -87,17 +91,64 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
-    name: 'godot_connect_editor',
-    description: 'Connect to an in-editor bridge plugin (addons/godot_mcp_bridge) via TCP.',
+    name: 'godot_headless_batch',
+    description: 'Run multiple headless operations in one Godot process.',
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        steps: {
+          type: 'array',
+          description: 'Batch steps to execute in-order',
+          items: {
+            type: 'object',
+            properties: {
+              operation: { type: 'string', description: 'Operation name' },
+              params: {
+                description: 'JSON parameters (object) or a JSON string',
+                anyOf: [{ type: 'object' }, { type: 'string' }],
+              },
+            },
+            required: ['operation'],
+          },
+        },
+        stopOnError: {
+          type: 'boolean',
+          description: 'Stop when a step fails (default: true)',
+          default: true,
+        },
+      },
+      required: ['projectPath', 'steps'],
+    },
+  },
+  {
+    name: 'godot_connect_editor',
+    description:
+      'Connect to an in-editor bridge plugin (addons/godot_mcp_bridge) via TCP.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        godotPath: {
+          type: 'string',
+          description: 'Optional: path to Godot executable',
+        },
         token: { type: 'string', description: 'Optional: auth token' },
-        host: { type: 'string', description: 'Optional: host (default 127.0.0.1)' },
+        host: {
+          type: 'string',
+          description: 'Optional: host (default 127.0.0.1)',
+        },
         port: { type: 'number', description: 'Optional: port (default 8765)' },
-        timeoutMs: { type: 'number', description: 'Optional: connect/hello timeout in ms (default: 30000)' },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: connect/hello timeout in ms (default: 30000)',
+        },
       },
       required: ['projectPath'],
     },
@@ -109,10 +160,14 @@ const TOOL_DEFINITIONS = [
       type: 'object',
       properties: {
         request_json: {
-          description: 'Either an object or a JSON string (must include method and optional params).',
+          description:
+            'Either an object or a JSON string (must include method and optional params).',
           anyOf: [{ type: 'object' }, { type: 'string' }],
         },
-        timeoutMs: { type: 'number', description: 'Optional: RPC timeout in ms (default: 10000)' },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
       },
       required: ['request_json'],
     },
@@ -124,12 +179,215 @@ const TOOL_DEFINITIONS = [
       type: 'object',
       properties: {
         query_json: {
-          description: 'Either an object or a JSON string (class_name or node_path or instance_id).',
+          description:
+            'Either an object or a JSON string (class_name or node_path or instance_id).',
           anyOf: [{ type: 'object' }, { type: 'string' }],
         },
-        timeoutMs: { type: 'number', description: 'Optional: RPC timeout in ms (default: 10000)' },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
       },
       required: ['query_json'],
+    },
+  },
+  {
+    name: 'godot_editor_batch',
+    description:
+      'Run multiple editor-bridge RPC calls as one undoable batch (atomic).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        actionName: {
+          type: 'string',
+          description: 'Optional: Undo/Redo action name',
+        },
+        stopOnError: {
+          type: 'boolean',
+          description:
+            'Stop on first failed step (default: true). When any step fails, the batch is rolled back.',
+          default: true,
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: per-step RPC timeout in ms (default: 10000)',
+        },
+        steps: {
+          type: 'array',
+          description: 'Batch steps to execute in-order',
+          items: {
+            type: 'object',
+            properties: {
+              method: { type: 'string', description: 'Editor RPC method name' },
+              params: {
+                description: 'JSON parameters (object) or a JSON string',
+                anyOf: [{ type: 'object' }, { type: 'string' }],
+                default: {},
+              },
+            },
+            required: ['method'],
+          },
+        },
+      },
+      required: ['steps'],
+    },
+  },
+  {
+    name: 'godot_select_node',
+    description: 'Select/focus a node in the editor scene tree.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodePath: {
+          type: 'string',
+          description: 'Node path relative to edited scene root (e.g., "root")',
+        },
+        instanceId: {
+          type: 'number',
+          description: 'Optional: node instance ID',
+        },
+        additive: {
+          type: 'boolean',
+          description: 'Add to selection instead of replacing it',
+          default: false,
+        },
+        clear: {
+          type: 'boolean',
+          description: 'Clear selection (ignores nodePath/instanceId)',
+          default: false,
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+    },
+  },
+  {
+    name: 'godot_scene_tree_query',
+    description:
+      'Query nodes in the edited scene by name/class/group (returns node paths + instance IDs).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact node name match' },
+        nameContains: {
+          type: 'string',
+          description: 'Substring match on node name',
+        },
+        className: {
+          type: 'string',
+          description: 'Class filter (Node.is_class)',
+        },
+        group: {
+          type: 'string',
+          description: 'Group filter (Node.is_in_group)',
+        },
+        includeRoot: {
+          type: 'boolean',
+          description: 'Include the edited scene root in search',
+          default: false,
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default: 50)',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+    },
+  },
+  {
+    name: 'godot_duplicate_node',
+    description: 'Duplicate a node in the edited scene (undoable).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodePath: {
+          type: 'string',
+          description: 'Node path (relative to root)',
+        },
+        newName: { type: 'string', description: 'Optional: new node name' },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+      required: ['nodePath'],
+    },
+  },
+  {
+    name: 'godot_reparent_node',
+    description: 'Reparent a node in the edited scene (undoable).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodePath: {
+          type: 'string',
+          description: 'Node path (relative to root)',
+        },
+        newParentPath: {
+          type: 'string',
+          description: 'New parent node path (relative to root)',
+        },
+        index: {
+          type: 'number',
+          description: 'Optional: new child index under the new parent',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+      required: ['nodePath', 'newParentPath'],
+    },
+  },
+  {
+    name: 'godot_add_scene_instance',
+    description: 'Instance a PackedScene into the edited scene (undoable).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scenePath: {
+          type: 'string',
+          description: 'Path to a PackedScene (res://... or inside project)',
+        },
+        parentNodePath: {
+          type: 'string',
+          description: 'Parent node path (default: root)',
+        },
+        name: { type: 'string', description: 'Optional: instance node name' },
+        props: {
+          type: 'object',
+          description: 'Optional: properties to set on the instance root',
+        },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+      required: ['scenePath'],
+    },
+  },
+  {
+    name: 'godot_disconnect_signal',
+    description:
+      'Disconnect a signal connection in the edited scene (undoable).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromNodePath: { type: 'string', description: 'Emitter node path' },
+        signal: { type: 'string', description: 'Signal name' },
+        toNodePath: { type: 'string', description: 'Target node path' },
+        method: { type: 'string', description: 'Target method name' },
+        timeoutMs: {
+          type: 'number',
+          description: 'Optional: RPC timeout in ms (default: 10000)',
+        },
+      },
+      required: ['fromNodePath', 'signal', 'toNodePath', 'method'],
     },
   },
   {
@@ -138,10 +396,22 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
-        token: { type: 'string', description: 'Optional: editor bridge token override' },
-        port: { type: 'number', description: 'Optional: editor bridge port override' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        godotPath: {
+          type: 'string',
+          description: 'Optional: path to Godot executable',
+        },
+        token: {
+          type: 'string',
+          description: 'Optional: editor bridge token override',
+        },
+        port: {
+          type: 'number',
+          description: 'Optional: editor bridge port override',
+        },
       },
       required: ['projectPath'],
     },
@@ -152,9 +422,18 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scene: { type: 'string', description: 'Optional: Specific scene to run' },
-        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scene: {
+          type: 'string',
+          description: 'Optional: Specific scene to run',
+        },
+        godotPath: {
+          type: 'string',
+          description: 'Optional: path to Godot executable',
+        },
       },
       required: ['projectPath'],
     },
@@ -176,24 +455,38 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'godot_sync_addon',
-    description: 'Sync the editor bridge addon into a Godot project and optionally enable the plugin',
+    description:
+      'Sync the editor bridge addon into a Godot project and optionally enable the plugin',
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        enablePlugin: { type: 'boolean', description: 'Optional: enable editor plugin (default: true)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        enablePlugin: {
+          type: 'boolean',
+          description: 'Optional: enable editor plugin (default: true)',
+        },
       },
       required: ['projectPath'],
     },
   },
   {
     name: 'godot_import_project_assets',
-    description: 'Run a headless import step for project assets (useful for SVG/UID workflows)',
+    description:
+      'Run a headless import step for project assets (useful for SVG/UID workflows)',
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        godotPath: { type: 'string', description: 'Optional: path to Godot executable' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        godotPath: {
+          type: 'string',
+          description: 'Optional: path to Godot executable',
+        },
       },
       required: ['projectPath'],
     },
@@ -204,8 +497,14 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        directory: { type: 'string', description: 'Directory to search for Godot projects' },
-        recursive: { type: 'boolean', description: 'Whether to search recursively (default: false)' },
+        directory: {
+          type: 'string',
+          description: 'Directory to search for Godot projects',
+        },
+        recursive: {
+          type: 'boolean',
+          description: 'Whether to search recursively (default: false)',
+        },
       },
       required: ['directory'],
     },
@@ -215,7 +514,40 @@ const TOOL_DEFINITIONS = [
     description: 'Retrieve metadata about a Godot project',
     inputSchema: {
       type: 'object',
-      properties: { projectPath: { type: 'string', description: 'Path to the Godot project directory' } },
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+      },
+      required: ['projectPath'],
+    },
+  },
+  {
+    name: 'godot_preflight',
+    description:
+      'Run lightweight environment checks for a Godot project (project file, addon, port, optional Godot path).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        godotPath: {
+          type: 'string',
+          description:
+            'Optional: path to Godot executable (overrides GODOT_PATH)',
+        },
+        host: {
+          type: 'string',
+          description: 'Optional: editor bridge host (default: 127.0.0.1)',
+        },
+        port: {
+          type: 'number',
+          description: 'Optional: editor bridge port (default: 8765)',
+        },
+      },
       required: ['projectPath'],
     },
   },
@@ -225,9 +557,19 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scenePath: { type: 'string', description: 'Path where the scene file will be created (relative to project)' },
-        rootNodeType: { type: 'string', description: 'Root node type (default: Node2D)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scenePath: {
+          type: 'string',
+          description:
+            'Path where the scene file will be created (relative to project)',
+        },
+        rootNodeType: {
+          type: 'string',
+          description: 'Root node type (default: Node2D)',
+        },
       },
       required: ['projectPath', 'scenePath'],
     },
@@ -238,12 +580,24 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scenePath: { type: 'string', description: 'Path to the scene file (relative to project)' },
-        parentNodePath: { type: 'string', description: 'Parent node path (default: root)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scenePath: {
+          type: 'string',
+          description: 'Path to the scene file (relative to project)',
+        },
+        parentNodePath: {
+          type: 'string',
+          description: 'Parent node path (default: root)',
+        },
         nodeType: { type: 'string', description: 'Node type to add' },
         nodeName: { type: 'string', description: 'Name of the new node' },
-        properties: { type: 'object', description: 'Optional properties to set on the node' },
+        properties: {
+          type: 'object',
+          description: 'Optional properties to set on the node',
+        },
       },
       required: ['projectPath', 'scenePath', 'nodeType', 'nodeName'],
     },
@@ -254,10 +608,19 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scenePath: { type: 'string', description: 'Path to the scene file (relative to project)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scenePath: {
+          type: 'string',
+          description: 'Path to the scene file (relative to project)',
+        },
         nodePath: { type: 'string', description: 'Path to the Sprite2D node' },
-        texturePath: { type: 'string', description: 'Path to the texture file (relative to project)' },
+        texturePath: {
+          type: 'string',
+          description: 'Path to the texture file (relative to project)',
+        },
       },
       required: ['projectPath', 'scenePath', 'nodePath', 'texturePath'],
     },
@@ -268,10 +631,25 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scenePath: { type: 'string', description: 'Path to the 3D scene file (relative to project)' },
-        outputPath: { type: 'string', description: 'Path where the MeshLibrary resource will be saved (relative to project)' },
-        meshItemNames: { type: 'array', items: { type: 'string' }, description: 'Optional: Names of mesh items to include (default: all)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scenePath: {
+          type: 'string',
+          description: 'Path to the 3D scene file (relative to project)',
+        },
+        outputPath: {
+          type: 'string',
+          description:
+            'Path where the MeshLibrary resource will be saved (relative to project)',
+        },
+        meshItemNames: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional: Names of mesh items to include (default: all)',
+        },
       },
       required: ['projectPath', 'scenePath', 'outputPath'],
     },
@@ -282,9 +660,19 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        scenePath: { type: 'string', description: 'Path to the scene file (relative to project)' },
-        newPath: { type: 'string', description: 'Optional: New path to save the scene as (relative to project)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        scenePath: {
+          type: 'string',
+          description: 'Path to the scene file (relative to project)',
+        },
+        newPath: {
+          type: 'string',
+          description:
+            'Optional: New path to save the scene as (relative to project)',
+        },
       },
       required: ['projectPath', 'scenePath'],
     },
@@ -295,18 +683,30 @@ const TOOL_DEFINITIONS = [
     inputSchema: {
       type: 'object',
       properties: {
-        projectPath: { type: 'string', description: 'Path to the Godot project directory' },
-        filePath: { type: 'string', description: 'Path to the file (relative to project)' },
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+        filePath: {
+          type: 'string',
+          description: 'Path to the file (relative to project)',
+        },
       },
       required: ['projectPath', 'filePath'],
     },
   },
   {
     name: 'update_project_uids',
-    description: 'Update UID references in a Godot project by resaving resources (Godot 4.4+)',
+    description:
+      'Update UID references in a Godot project by resaving resources (Godot 4.4+)',
     inputSchema: {
       type: 'object',
-      properties: { projectPath: { type: 'string', description: 'Path to the Godot project directory' } },
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: 'Path to the Godot project directory',
+        },
+      },
       required: ['projectPath'],
     },
   },
@@ -355,11 +755,15 @@ export class GodotMcpOmniServer {
 
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    this.operationsScriptPath = path.join(__dirname, 'scripts', 'godot_operations.gd');
+    this.operationsScriptPath = path.join(
+      __dirname,
+      'scripts',
+      'godot_operations.gd',
+    );
 
     this.server = new Server(
       { name: 'godot-mcp-omni', version: '0.1.0' },
-      { capabilities: { tools: {} } }
+      { capabilities: { tools: {} } },
     );
 
     this.toolHandlers = this.createToolHandlers();
@@ -379,7 +783,8 @@ export class GodotMcpOmniServer {
 
   private normalizeParameters(params: unknown): unknown {
     if (!params || typeof params !== 'object') return params;
-    if (Array.isArray(params)) return params.map((v) => this.normalizeParameters(v));
+    if (Array.isArray(params))
+      return params.map((v) => this.normalizeParameters(v));
 
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(params)) {
@@ -391,7 +796,8 @@ export class GodotMcpOmniServer {
 
   private convertCamelToSnakeCase(params: unknown): unknown {
     if (!params || typeof params !== 'object') return params;
-    if (Array.isArray(params)) return params.map((v) => this.convertCamelToSnakeCase(v));
+    if (Array.isArray(params))
+      return params.map((v) => this.convertCamelToSnakeCase(v));
 
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(params)) {
@@ -415,7 +821,9 @@ export class GodotMcpOmniServer {
     }
     const projectFile = path.join(projectPath, 'project.godot');
     if (!existsSync(projectFile)) {
-      throw new Error(`Not a valid Godot project (missing project.godot): ${projectPath}`);
+      throw new Error(
+        `Not a valid Godot project (missing project.godot): ${projectPath}`,
+      );
     }
   }
 
@@ -427,12 +835,18 @@ export class GodotMcpOmniServer {
     });
 
     this.godotPath = candidate;
-    const ok = await isValidGodotPath(candidate, this.validatedGodotPathCache, (m) =>
-      this.logDebug(m)
+    const ok = await isValidGodotPath(
+      candidate,
+      this.validatedGodotPathCache,
+      (m) => this.logDebug(m),
     );
 
-    if (!ok && this.strictPathValidation) throw new Error(`Invalid Godot path: ${candidate}`);
-    if (!ok) console.warn(`[SERVER] Warning: using potentially invalid Godot path: ${candidate}`);
+    if (!ok && this.strictPathValidation)
+      throw new Error(`Invalid Godot path: ${candidate}`);
+    if (!ok)
+      console.warn(
+        `[SERVER] Warning: using potentially invalid Godot path: ${candidate}`,
+      );
     return candidate;
   }
 
@@ -491,12 +905,17 @@ export class GodotMcpOmniServer {
         const details: Record<string, unknown> = { tool };
 
         if (error instanceof Error) {
-          const errorDetails: Record<string, unknown> = { name: error.name, message };
+          const errorDetails: Record<string, unknown> = {
+            name: error.name,
+            message,
+          };
           if (isRecord(error)) {
             const errorRecord = error as Record<string, unknown>;
-            if (errorRecord.code !== undefined) errorDetails.code = errorRecord.code;
+            if (errorRecord.code !== undefined)
+              errorDetails.code = errorRecord.code;
             if (Array.isArray(errorRecord.attemptedCandidates)) {
-              errorDetails.attemptedCandidates = errorRecord.attemptedCandidates;
+              errorDetails.attemptedCandidates =
+                errorRecord.attemptedCandidates;
             }
           }
           details.error = errorDetails;
@@ -512,10 +931,10 @@ export class GodotMcpOmniServer {
         typeof maybeProjectPath === 'string' && maybeProjectPath.length > 0
           ? maybeProjectPath
           : tool === 'godot_rpc' || tool === 'godot_inspect'
-          ? this.editorProjectPath
-          : tool === 'get_debug_output' || tool === 'stop_project'
-          ? this.activeProcess?.projectPath ?? null
-          : null;
+            ? this.editorProjectPath
+            : tool === 'get_debug_output' || tool === 'stop_project'
+              ? (this.activeProcess?.projectPath ?? null)
+              : null;
 
       if (typeof auditProjectPath === 'string' && auditProjectPath.length > 0) {
         try {
@@ -526,7 +945,9 @@ export class GodotMcpOmniServer {
             ok: Boolean(result.ok),
             summary: String(result.summary ?? ''),
             details: redactSecrets(result.details),
-            error: redactSecrets(isRecord(result.details) ? result.details.error : undefined),
+            error: redactSecrets(
+              isRecord(result.details) ? result.details.error : undefined,
+            ),
           });
         } catch (error) {
           this.logDebug(`Audit log failed: ${String(error)}`);
@@ -537,9 +958,13 @@ export class GodotMcpOmniServer {
     });
   }
 
-  private async dispatchTool(tool: string, args: unknown): Promise<ToolResponse> {
+  private async dispatchTool(
+    tool: string,
+    args: unknown,
+  ): Promise<ToolResponse> {
     const handler = this.toolHandlers[tool];
-    if (!handler) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${tool}`);
+    if (!handler)
+      throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${tool}`);
 
     try {
       return await handler(args as Record<string, unknown>);

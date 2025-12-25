@@ -72,7 +72,13 @@ export class EditorBridgeClient {
     socket.on('close', () => this.onSocketClose());
 
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Editor bridge connect timeout after ${timeoutMs}ms`)), timeoutMs);
+      const timeout = setTimeout(
+        () =>
+          reject(
+            new Error(`Editor bridge connect timeout after ${timeoutMs}ms`),
+          ),
+        timeoutMs,
+      );
       socket.once('error', (err) => {
         clearTimeout(timeout);
         reject(err);
@@ -87,7 +93,11 @@ export class EditorBridgeClient {
     this.sendLine(hello);
 
     const helloOk = await new Promise<BridgeHelloOk>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Editor bridge hello timeout after ${timeoutMs}ms`)), timeoutMs);
+      const timeout = setTimeout(
+        () =>
+          reject(new Error(`Editor bridge hello timeout after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
       this.helloWaiter = { resolve, reject, timeout };
     });
 
@@ -103,8 +113,13 @@ export class EditorBridgeClient {
     }
   }
 
-  async request(method: string, params: Record<string, unknown> = {}, timeoutMs = 10000): Promise<BridgeResponse> {
-    if (!this.socket || this.socket.destroyed) throw new Error('Editor bridge not connected');
+  async request(
+    method: string,
+    params: Record<string, unknown> = {},
+    timeoutMs = 10000,
+  ): Promise<BridgeResponse> {
+    if (!this.socket || this.socket.destroyed)
+      throw new Error('Editor bridge not connected');
 
     const id = this.nextId++;
     const message = { id, method, params };
@@ -113,7 +128,11 @@ export class EditorBridgeClient {
     return await new Promise<BridgeResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Editor bridge request timeout after ${timeoutMs}ms (method=${method})`));
+        reject(
+          new Error(
+            `Editor bridge request timeout after ${timeoutMs}ms (method=${method})`,
+          ),
+        );
       }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timeout });
@@ -121,7 +140,8 @@ export class EditorBridgeClient {
   }
 
   private sendLine(obj: unknown): void {
-    if (!this.socket || this.socket.destroyed) throw new Error('Editor bridge socket not available');
+    if (!this.socket || this.socket.destroyed)
+      throw new Error('Editor bridge socket not available');
     this.socket.write(`${JSON.stringify(obj)}\n`);
   }
 
@@ -150,7 +170,9 @@ export class EditorBridgeClient {
         if (waiter) {
           clearTimeout(waiter.timeout);
           this.helloWaiter = undefined;
-          const capabilities = isRecord(msg.capabilities) ? msg.capabilities : undefined;
+          const capabilities = isRecord(msg.capabilities)
+            ? msg.capabilities
+            : undefined;
           waiter.resolve({ type: 'hello_ok', capabilities });
         }
         continue;
@@ -194,7 +216,9 @@ export class EditorBridgeClient {
 
     for (const [id, pending] of this.pending.entries()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error(`Editor bridge socket error: ${err.message} (id=${id})`));
+      pending.reject(
+        new Error(`Editor bridge socket error: ${err.message} (id=${id})`),
+      );
     }
     this.pending.clear();
   }

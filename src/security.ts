@@ -1,4 +1,11 @@
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from 'fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from 'fs';
 import path from 'path';
 
 export interface AuditEntry {
@@ -19,7 +26,10 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 }
 
 function rotateAuditLogIfNeeded(auditPath: string): void {
-  const maxBytes = parsePositiveInt(process.env.GODOT_MCP_AUDIT_MAX_BYTES, 5 * 1024 * 1024);
+  const maxBytes = parsePositiveInt(
+    process.env.GODOT_MCP_AUDIT_MAX_BYTES,
+    5 * 1024 * 1024,
+  );
   const backups = parsePositiveInt(process.env.GODOT_MCP_AUDIT_BACKUPS, 3);
   if (backups <= 0) return;
 
@@ -81,7 +91,7 @@ export function assertDangerousOpsAllowed(name: string): void {
   if (process.env.ALLOW_DANGEROUS_OPS === 'true') return;
 
   throw new Error(
-    `Dangerous operation blocked (${name}). Set ALLOW_DANGEROUS_OPS=true to allow delete/move/export/build/project_settings changes.`
+    `Dangerous operation blocked (${name}). Set ALLOW_DANGEROUS_OPS=true to allow delete/move/export/build/project_settings changes.`,
   );
 }
 
@@ -176,7 +186,10 @@ function normalizeForComparison(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p;
 }
 
-export function resolveInsideProject(projectPath: string, userPath: string): string {
+export function resolveInsideProject(
+  projectPath: string,
+  userPath: string,
+): string {
   if (!projectPath) throw new Error('projectPath is required');
   if (!userPath) throw new Error('path is required');
 
@@ -185,10 +198,13 @@ export function resolveInsideProject(projectPath: string, userPath: string): str
   }
 
   let candidate = userPath;
-  if (candidate.startsWith('res://')) candidate = candidate.slice('res://'.length);
+  if (candidate.startsWith('res://'))
+    candidate = candidate.slice('res://'.length);
 
   const resolvedProject = path.resolve(projectPath);
-  const resolvedCandidate = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(resolvedProject, candidate);
+  const resolvedCandidate = path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : path.resolve(resolvedProject, candidate);
 
   const rel = path.relative(resolvedProject, resolvedCandidate);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -204,12 +220,18 @@ export function resolveInsideProject(projectPath: string, userPath: string): str
   return resolvedCandidate;
 }
 
-function getStringParam(params: Record<string, unknown>, key: string): string | undefined {
+function getStringParam(
+  params: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const v = params[key];
   return typeof v === 'string' ? v : undefined;
 }
 
-function getNestedStringParam(params: Record<string, unknown>, keys: string[]): string | undefined {
+function getNestedStringParam(
+  params: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
   for (const k of keys) {
     const v = getStringParam(params, k);
     if (typeof v === 'string' && v.length > 0) return v;
@@ -217,7 +239,11 @@ function getNestedStringParam(params: Record<string, unknown>, keys: string[]): 
   return undefined;
 }
 
-function getTargetInfo(params: Record<string, unknown>): { targetType?: string; targetId?: string; method?: string } {
+function getTargetInfo(params: Record<string, unknown>): {
+  targetType?: string;
+  targetId?: string;
+  method?: string;
+} {
   return {
     targetType: getNestedStringParam(params, ['target_type', 'targetType']),
     targetId: getNestedStringParam(params, ['target_id', 'targetId']),
@@ -225,21 +251,50 @@ function getTargetInfo(params: Record<string, unknown>): { targetType?: string; 
   };
 }
 
-function isDangerousRpcTarget(targetType: string | undefined, targetId: string | undefined): boolean {
+function isDangerousRpcTarget(
+  targetType: string | undefined,
+  targetId: string | undefined,
+): boolean {
   if (!targetType || !targetId) return false;
   if (targetType !== 'singleton') return false;
   const id = targetId.toLowerCase();
   return id === 'os' || id === 'projectsettings' || id === 'fileaccess';
 }
 
-export function assertEditorRpcAllowed(method: string, params: Record<string, unknown>, projectPath: string): void {
+export function assertEditorRpcAllowed(
+  method: string,
+  params: Record<string, unknown>,
+  projectPath: string,
+): void {
   if (!projectPath) throw new Error('projectPath is required');
   const m = method.trim();
 
   // Path allowlist for common editor RPCs.
   if (m === 'open_scene' || m === 'save_scene') {
     const p = getStringParam(params, 'path');
-    if (typeof p === 'string' && p.length > 0) resolveInsideProject(projectPath, p);
+    if (typeof p === 'string' && p.length > 0)
+      resolveInsideProject(projectPath, p);
+  }
+
+  if (m === 'instance_scene') {
+    const p = getNestedStringParam(params, ['scene_path', 'scenePath']);
+    if (typeof p === 'string' && p.length > 0)
+      resolveInsideProject(projectPath, p);
+    return;
+  }
+
+  if (
+    m === 'begin_action' ||
+    m === 'commit_action' ||
+    m === 'abort_action' ||
+    m === 'duplicate_node' ||
+    m === 'reparent_node' ||
+    m === 'disconnect_signal' ||
+    m === 'scene_tree.query' ||
+    m === 'selection.select_node' ||
+    m === 'selection.clear'
+  ) {
+    return;
   }
 
   if (m === 'filesystem.scan') {
@@ -248,7 +303,11 @@ export function assertEditorRpcAllowed(method: string, params: Record<string, un
   }
 
   if (m === 'filesystem.reimport_files') {
-    const files = params.files ?? params.paths ?? params.reimport_files ?? params.reimportFiles;
+    const files =
+      params.files ??
+      params.paths ??
+      params.reimport_files ??
+      params.reimportFiles;
     if (Array.isArray(files)) {
       for (const f of files) {
         if (typeof f !== 'string') continue;
@@ -261,13 +320,17 @@ export function assertEditorRpcAllowed(method: string, params: Record<string, un
   // Generic RPC safety gates (call/set/get).
   if (m === 'call' || m === 'set' || m === 'get') {
     const { targetType, targetId, method: innerMethod } = getTargetInfo(params);
-    const targetTypeNormalized = typeof targetType === 'string' ? targetType.trim() : undefined;
-    const targetIdNormalized = typeof targetId === 'string' ? targetId.trim() : undefined;
+    const targetTypeNormalized =
+      typeof targetType === 'string' ? targetType.trim() : undefined;
+    const targetIdNormalized =
+      typeof targetId === 'string' ? targetId.trim() : undefined;
 
     if (isDangerousRpcTarget(targetTypeNormalized, targetIdNormalized)) {
       // By default, block OS/ProjectSettings/FileAccess access; allow only when explicitly enabled.
       if (process.env.ALLOW_DANGEROUS_OPS !== 'true') {
-        throw new Error(`Dangerous RPC blocked (${String(targetId)}.${String(innerMethod ?? m)}). Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.`);
+        throw new Error(
+          `Dangerous RPC blocked (${String(targetId)}.${String(innerMethod ?? m)}). Set ALLOW_DANGEROUS_OPS=true to allow OS/FileAccess/ProjectSettings access.`,
+        );
       }
     }
 
@@ -277,15 +340,30 @@ export function assertEditorRpcAllowed(method: string, params: Record<string, un
     }
 
     // FileAccess APIs take the path as the first arg (validate even when dangerous ops are allowed).
-    if (targetTypeNormalized === 'singleton' && targetIdNormalized?.toLowerCase() === 'fileaccess') {
+    if (
+      targetTypeNormalized === 'singleton' &&
+      targetIdNormalized?.toLowerCase() === 'fileaccess'
+    ) {
       const args = params.args;
-      if (Array.isArray(args) && typeof args[0] === 'string' && args[0].length > 0) {
+      if (
+        Array.isArray(args) &&
+        typeof args[0] === 'string' &&
+        args[0].length > 0
+      ) {
         resolveInsideProject(projectPath, args[0]);
       }
     }
 
     // If the caller tries to pass any obvious path args, enforce allowlist.
-    const pathArg = getNestedStringParam(params, ['path', 'file_path', 'filePath', 'resource_path', 'resourcePath', 'scene_path', 'scenePath']);
+    const pathArg = getNestedStringParam(params, [
+      'path',
+      'file_path',
+      'filePath',
+      'resource_path',
+      'resourcePath',
+      'scene_path',
+      'scenePath',
+    ]);
     if (pathArg) resolveInsideProject(projectPath, pathArg);
   }
 }

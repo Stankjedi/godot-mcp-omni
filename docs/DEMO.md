@@ -25,7 +25,7 @@ If `DEMO_PROJECT_PATH` is not set, the script creates a temporary project and tr
 
 These are the **tool argument payloads** you’d send via your MCP client.
 
-1) Connect to editor
+1. Connect to editor
 
 ```json
 { "projectPath": "C:/Projects/MyGame", "timeoutMs": 60000 }
@@ -33,7 +33,7 @@ These are the **tool argument payloads** you’d send via your MCP client.
 
 Tool: `godot_connect_editor`
 
-2) Health / ping
+2. Health / ping
 
 ```json
 { "request_json": { "method": "health", "params": {} } }
@@ -41,47 +41,80 @@ Tool: `godot_connect_editor`
 
 Tool: `godot_rpc`
 
-3) Create a demo scene (headless)
+3. Create a demo scene (headless)
 
 ```json
-{ "projectPath": "C:/Projects/MyGame", "scenePath": ".godot_mcp/demo/Demo.tscn", "rootNodeType": "Node2D" }
+{
+  "projectPath": "C:/Projects/MyGame",
+  "scenePath": ".godot_mcp/demo/Demo.tscn",
+  "rootNodeType": "Node2D"
+}
 ```
 
 Tool: `create_scene`
 
-4) Open scene in editor
+4. Open scene in editor
 
 ```json
-{ "request_json": { "method": "open_scene", "params": { "path": "res://.godot_mcp/demo/Demo.tscn" } } }
+{
+  "request_json": {
+    "method": "open_scene",
+    "params": { "path": "res://.godot_mcp/demo/Demo.tscn" }
+  }
+}
 ```
 
 Tool: `godot_rpc`
 
-5) Begin a single undo step
+5. Begin a single undo step
 
 ```json
-{ "request_json": { "method": "begin_action", "params": { "name": "demo:add+set" } } }
+{
+  "request_json": {
+    "method": "begin_action",
+    "params": { "name": "demo:add+set" }
+  }
+}
 ```
 
 Tool: `godot_rpc`
 
-6) Add a node (editor mutation)
+6. Add a node (editor mutation)
 
 ```json
-{ "request_json": { "method": "add_node", "params": { "parent_path": "root", "type": "Node2D", "name": "BatchNode", "props": { "unique_name_in_owner": true } } } }
+{
+  "request_json": {
+    "method": "add_node",
+    "params": {
+      "parent_path": "root",
+      "type": "Node2D",
+      "name": "BatchNode",
+      "props": { "unique_name_in_owner": true }
+    }
+  }
+}
 ```
 
 Tool: `godot_rpc`
 
-7) Set a property (editor mutation)
+7. Set a property (editor mutation)
 
 ```json
-{ "request_json": { "method": "set_property", "params": { "node_path": "root/BatchNode", "property": "visible", "value": false } } }
+{
+  "request_json": {
+    "method": "set_property",
+    "params": {
+      "node_path": "root/BatchNode",
+      "property": "visible",
+      "value": false
+    }
+  }
+}
 ```
 
 Tool: `godot_rpc`
 
-8) Commit the undo step
+8. Commit the undo step
 
 ```json
 { "request_json": { "method": "commit_action", "params": {} } }
@@ -89,15 +122,20 @@ Tool: `godot_rpc`
 
 Tool: `godot_rpc`
 
-9) Editor filesystem wrappers
+9. Editor filesystem wrappers
 
 ```json
-{ "request_json": { "method": "filesystem.reimport_files", "params": { "files": ["res://.godot_mcp/demo/Demo.tscn"] } } }
+{
+  "request_json": {
+    "method": "filesystem.reimport_files",
+    "params": { "files": ["res://.godot_mcp/demo/Demo.tscn"] }
+  }
+}
 ```
 
 Tool: `godot_rpc`
 
-10) Inspect
+10. Inspect
 
 Class:
 
@@ -116,12 +154,14 @@ Tool: `godot_inspect`
 ## Troubleshooting editor connection
 
 If `godot_connect_editor` fails, inspect the `details` block:
+
 - `host`, `port`, `timeoutMs` to confirm the endpoint.
 - `tokenSource` to verify where the token came from.
 - `lockFileExists` to confirm the plugin has started inside the editor.
 - `lastError.code` (e.g., `ECONNREFUSED`) for quick root-cause hints.
 
 Typical fixes:
+
 - Enable **Godot MCP Bridge** in Project Settings → Plugins.
 - Ensure `GODOT_MCP_TOKEN` matches `.godot_mcp_token`.
 - Allow the port through local firewall and wait for editor startup/imports.

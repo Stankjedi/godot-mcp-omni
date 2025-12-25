@@ -16,10 +16,18 @@
     "smoke": "npm run build && node build/smoke.js",
     "verify:safety": "npm run build && node build/verify_safety.js",
     "verify:mcp": "npm run build && node scripts/verify_mcp.js",
+    "verify:readme": "npm run build && node scripts/test_readme_examples.js",
+    "verify:sprite": "npm run build && node scripts/test_load_sprite.js",
+    "verify:all": "npm test && npm run verify:safety",
+    "verify:examples": "npm run verify:readme && npm run verify:sprite",
+    "verify:full": "npm run verify:all && npm run verify:mcp && npm run verify:examples",
     "test": "npm run build && node --test test/*.test.mjs",
     "demo:editor": "npm run build && node build/demo_editor.js",
     "sync:addon": "node scripts/sync_addon.js",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
+    "lint": "eslint src scripts test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
@@ -27,7 +35,13 @@
     "fs-extra": "^11.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^20.11.24",
+    "@typescript-eslint/eslint-plugin": "^8.50.1",
+    "@typescript-eslint/parser": "^8.50.1",
+    "eslint": "^9.39.2",
+    "globals": "^16.5.0",
+    "prettier": "^3.7.4",
     "typescript": "^5.3.3"
   },
   "license": "MIT",

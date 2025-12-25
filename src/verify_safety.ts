@@ -20,11 +20,13 @@ async function main() {
   if (!ok) {
     throw new Error(
       `Godot executable is not valid: ${godotPath}\n` +
-        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`
+        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`,
     );
   }
 
-  const projectPath = await fs.mkdtemp(path.join(os.tmpdir(), 'godot-mcp-omni-safety-'));
+  const projectPath = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'godot-mcp-omni-safety-'),
+  );
   await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
 
   const projectGodot = [
@@ -36,14 +38,22 @@ async function main() {
     'config/name="godot-mcp-omni-safety"',
     '',
   ].join('\n');
-  await fs.writeFile(path.join(projectPath, 'project.godot'), projectGodot, 'utf8');
+  await fs.writeFile(
+    path.join(projectPath, 'project.godot'),
+    projectGodot,
+    'utf8',
+  );
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const serverEntry = path.join(__dirname, 'index.js');
 
   const server = spawn(process.execPath, [serverEntry], {
-    env: { ...process.env, GODOT_PATH: godotPath, DEBUG: debug ? 'true' : 'false' },
+    env: {
+      ...process.env,
+      GODOT_PATH: godotPath,
+      DEBUG: debug ? 'true' : 'false',
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -69,9 +79,11 @@ async function main() {
 
   try {
     const listResp = await client.send('tools/list', {});
-    if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
+    if ('error' in listResp)
+      throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
 
-    const callTool = async (name: string, args: Record<string, unknown>) => await client.callTool(name, args);
+    const callTool = async (name: string, args: Record<string, unknown>) =>
+      await client.callTool(name, args);
 
     // 0) Validation: missing required args should fail fast with a structured error.
     const invalidArgsResp = await callTool('godot_headless_op', {
@@ -85,7 +97,7 @@ async function main() {
       invalidArgsResp?.details?.field !== 'projectPath'
     ) {
       throw new Error(
-        `Expected validation failure for missing projectPath. Got: ${JSON.stringify(invalidArgsResp, null, 2)}`
+        `Expected validation failure for missing projectPath. Got: ${JSON.stringify(invalidArgsResp, null, 2)}`,
       );
     }
 
@@ -100,7 +112,9 @@ async function main() {
       typeof outsideWrite?.summary !== 'string' ||
       !outsideWrite.summary.includes('Path escapes project root')
     ) {
-      throw new Error(`Expected outside write to be blocked. Got: ${JSON.stringify(outsideWrite, null, 2)}`);
+      throw new Error(
+        `Expected outside write to be blocked. Got: ${JSON.stringify(outsideWrite, null, 2)}`,
+      );
     }
 
     // 2) Dangerous ops gating: export/build/delete-like ops require ALLOW_DANGEROUS_OPS=true.
@@ -114,7 +128,9 @@ async function main() {
       typeof exportAttempt?.summary !== 'string' ||
       !exportAttempt.summary.includes('Dangerous operation blocked')
     ) {
-      throw new Error(`Expected dangerous op to be blocked. Got: ${JSON.stringify(exportAttempt, null, 2)}`);
+      throw new Error(
+        `Expected dangerous op to be blocked. Got: ${JSON.stringify(exportAttempt, null, 2)}`,
+      );
     }
 
     // 3) Audit log should exist and contain entries.
@@ -135,4 +151,3 @@ main().catch((error: unknown) => {
   console.error(message);
   process.exit(1);
 });
-

@@ -19,5 +19,7 @@ export interface ServerContext {
   setEditorProjectPath: (projectPath: string | null) => void;
 
   getEditorLaunchInfo: () => { projectPath: string; ts: number } | null;
-  setEditorLaunchInfo: (info: { projectPath: string; ts: number } | null) => void;
+  setEditorLaunchInfo: (
+    info: { projectPath: string; ts: number } | null,
+  ) => void;
 }

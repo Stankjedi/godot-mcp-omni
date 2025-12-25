@@ -44,7 +44,9 @@ function extractLastJsonObject(text: string): ParsedJsonResult | undefined {
   return undefined;
 }
 
-export async function executeHeadlessOperation(options: HeadlessOpOptions): Promise<HeadlessOpResult> {
+export async function executeHeadlessOperation(
+  options: HeadlessOpOptions,
+): Promise<HeadlessOpResult> {
   const paramsJson = JSON.stringify(options.params ?? {});
 
   const args: string[] = [
@@ -59,11 +61,12 @@ export async function executeHeadlessOperation(options: HeadlessOpOptions): Prom
 
   if (options.godotDebugMode) args.push('--debug-godot');
 
-  options.debug?.(`Headless op command: ${formatCommand(options.godotPath, args)}`);
+  options.debug?.(
+    `Headless op command: ${formatCommand(options.godotPath, args)}`,
+  );
 
   const { stdout, stderr, exitCode } = await execGodot(options.godotPath, args);
   const parsed = extractLastJsonObject(stdout) ?? extractLastJsonObject(stderr);
 
   return { stdout, stderr, exitCode, parsed };
 }
-

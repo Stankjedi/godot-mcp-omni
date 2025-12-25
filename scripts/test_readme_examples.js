@@ -13,165 +13,212 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverEntry = path.join(repoRoot, 'build', 'index.js');
 
-const projectPath = 'C:\\Users\\송용준\\Desktop\\Dev\\Godotomni\\.tmp\\readme-test';
-const godotPath = 'C:\\Users\\송용준\\Desktop\\Dev\\Godotomni\\Godot_v4.5.1-stable_mono_win64\\Godot_v4.5.1-stable_mono_win64\\Godot_v4.5.1-stable_mono_win64_console.exe';
+function requireGodotPath() {
+  const godotPath = process.env.GODOT_PATH?.trim();
+  if (!godotPath) {
+    throw new Error(
+      'GODOT_PATH is required.\n' +
+        'Example: GODOT_PATH=/abs/path/to/godot npm run verify:readme',
+    );
+  }
+  return godotPath;
+}
+
+async function ensureMinimalProject(projectPath) {
+  const projectGodotPath = path.join(projectPath, 'project.godot');
+  try {
+    await fs.access(projectGodotPath);
+    return;
+  } catch {
+    // continue
+  }
+
+  const projectGodot = [
+    '; Engine configuration file.',
+    "; It's best edited using the editor, not directly.",
+    'config_version=5',
+    '',
+    '[application]',
+    'config/name="godot-mcp-readme-test"',
+    '',
+  ].join('\n');
+
+  await fs.writeFile(projectGodotPath, projectGodot, 'utf8');
+}
 
 async function main() {
-    console.log('=== README Use Case Test ===\n');
+  console.log('=== README Use Case Test ===\n');
 
-    // Start MCP server
-    const server = spawn(process.execPath, [serverEntry], {
-        env: {
-            ...process.env,
-            GODOT_PATH: godotPath,
-            ALLOW_DANGEROUS_OPS: 'true',
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-    });
+  try {
+    await fs.access(serverEntry);
+  } catch {
+    throw new Error(
+      `Build output not found: ${serverEntry}\nRun: npm run build`,
+    );
+  }
 
-    const client = new JsonRpcProcessClient(server);
-    const results = [];
+  const GODOT_PATH = requireGodotPath();
 
-    const runTest = async (name, fn) => {
-        console.log(`TEST: ${name}`);
-        try {
-            const result = await fn();
-            console.log(`  ✅ PASS`);
-            if (result?.details) {
-                console.log(`  Details: ${JSON.stringify(result.details, null, 2).slice(0, 200)}`);
-            }
-            results.push({ name, ok: true });
-            return result;
-        } catch (error) {
-            console.log(`  ❌ FAIL: ${error.message}`);
-            results.push({ name, ok: false, error: error.message });
-            return null;
-        }
-    };
+  const projectPath =
+    process.env.VERIFY_PROJECT_PATH ??
+    path.join(repoRoot, '.tmp', 'readme-test');
+  await fs.mkdir(projectPath, { recursive: true });
+  await ensureMinimalProject(projectPath);
 
+  // Start MCP server
+  const server = spawn(process.execPath, [serverEntry], {
+    env: {
+      ...process.env,
+      GODOT_PATH,
+      ALLOW_DANGEROUS_OPS: 'true',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+
+  const client = new JsonRpcProcessClient(server);
+  const results = [];
+
+  const runTest = async (name, fn) => {
+    console.log(`TEST: ${name}`);
     try {
-        // Wait for server startup
-        await new Promise(r => setTimeout(r, 500));
-
-        // Test 1: Get project info
-        await runTest('get_project_info', async () =>
-            client.callToolOrThrow('get_project_info', { projectPath })
+      const result = await fn();
+      console.log(`  ✅ PASS`);
+      if (result?.details) {
+        console.log(
+          `  Details: ${JSON.stringify(result.details, null, 2).slice(0, 200)}`,
         );
+      }
+      results.push({ name, ok: true });
+      return result;
+    } catch (error) {
+      console.log(`  ❌ FAIL: ${error.message}`);
+      results.push({ name, ok: false, error: error.message });
+      return null;
+    }
+  };
 
-        // Test 2: Create Player.tscn scene with CharacterBody2D root
-        await runTest('create_scene (Player.tscn)', async () =>
-            client.callToolOrThrow('create_scene', {
-                projectPath,
-                scenePath: 'scenes/Player.tscn',
-                rootNodeType: 'CharacterBody2D',
-            })
-        );
+  try {
+    // Wait for server startup
+    await new Promise((r) => setTimeout(r, 500));
 
-        // Test 3: Add Sprite2D node to Player scene
-        await runTest('add_node (Sprite2D)', async () =>
-            client.callToolOrThrow('add_node', {
-                projectPath,
-                scenePath: 'scenes/Player.tscn',
-                parentNodePath: 'root',
-                nodeType: 'Sprite2D',
-                nodeName: 'PlayerSprite',
-            })
-        );
+    // Test 1: Get project info
+    await runTest('get_project_info', async () =>
+      client.callToolOrThrow('get_project_info', { projectPath }),
+    );
 
-        // Test 4: Add CollisionShape2D node
-        await runTest('add_node (CollisionShape2D)', async () =>
-            client.callToolOrThrow('add_node', {
-                projectPath,
-                scenePath: 'scenes/Player.tscn',
-                parentNodePath: 'root',
-                nodeType: 'CollisionShape2D',
-                nodeName: 'Collision',
-            })
-        );
+    // Test 2: Create Player.tscn scene with CharacterBody2D root
+    await runTest('create_scene (Player.tscn)', async () =>
+      client.callToolOrThrow('create_scene', {
+        projectPath,
+        scenePath: 'scenes/Player.tscn',
+        rootNodeType: 'CharacterBody2D',
+      }),
+    );
 
-        // Test 5: Create a simple PNG texture
-        const pngBytes = Buffer.from(
-            'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAWElEQVR4nO3OMQHAIBDAwFd8/DJdNbAJmXoAeN9Mz+z/BwVAARAABEABEAAEQAEQAAVAABQAAVAABEABEAAFQAAUAAFQAARAARAA' +
-            'BQAB0B8Ac3dVwPgGahsAAAAASUVORK5CYII=',
-            'base64'
-        );
-        await fs.writeFile(path.join(projectPath, 'player.png'), pngBytes);
-        console.log('  Created player.png texture');
+    // Test 3: Add Sprite2D node to Player scene
+    await runTest('add_node (Sprite2D)', async () =>
+      client.callToolOrThrow('add_node', {
+        projectPath,
+        scenePath: 'scenes/Player.tscn',
+        parentNodePath: 'root',
+        nodeType: 'Sprite2D',
+        nodeName: 'PlayerSprite',
+      }),
+    );
 
-        // Test 6: Load sprite texture
-        await runTest('load_sprite (player.png)', async () =>
-            client.callToolOrThrow('load_sprite', {
-                projectPath,
-                scenePath: 'scenes/Player.tscn',
-                nodePath: 'root/PlayerSprite',
-                texturePath: 'res://player.png',
-            })
-        );
+    // Test 4: Add CollisionShape2D node
+    await runTest('add_node (CollisionShape2D)', async () =>
+      client.callToolOrThrow('add_node', {
+        projectPath,
+        scenePath: 'scenes/Player.tscn',
+        parentNodePath: 'root',
+        nodeType: 'CollisionShape2D',
+        nodeName: 'Collision',
+      }),
+    );
 
-        // Test 7: Save scene
-        await runTest('save_scene', async () =>
-            client.callToolOrThrow('save_scene', {
-                projectPath,
-                scenePath: 'scenes/Player.tscn',
-            })
-        );
+    // Test 5: Create a simple PNG texture
+    const pngBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await fs.writeFile(path.join(projectPath, 'player.png'), pngBytes);
+    console.log('  Created player.png texture');
 
-        // Test 8: Create UI scene for main menu
-        await runTest('create_scene (MainMenu.tscn)', async () =>
-            client.callToolOrThrow('create_scene', {
-                projectPath,
-                scenePath: 'scenes/ui/MainMenu.tscn',
-                rootNodeType: 'Control',
-            })
-        );
+    // Test 6: Load sprite texture
+    await runTest('load_sprite (player.png)', async () =>
+      client.callToolOrThrow('load_sprite', {
+        projectPath,
+        scenePath: 'scenes/Player.tscn',
+        nodePath: 'root/PlayerSprite',
+        texturePath: 'res://player.png',
+      }),
+    );
 
-        // Test 9: Add Button to UI
-        await runTest('add_node (Button)', async () =>
-            client.callToolOrThrow('add_node', {
-                projectPath,
-                scenePath: 'scenes/ui/MainMenu.tscn',
-                parentNodePath: 'root',
-                nodeType: 'Button',
-                nodeName: 'StartButton',
-                properties: { text: 'Start Game' },
-            })
-        );
+    // Test 7: Save scene
+    await runTest('save_scene', async () =>
+      client.callToolOrThrow('save_scene', {
+        projectPath,
+        scenePath: 'scenes/Player.tscn',
+      }),
+    );
 
-        // Test 10: Add Label to UI
-        await runTest('add_node (Label)', async () =>
-            client.callToolOrThrow('add_node', {
-                projectPath,
-                scenePath: 'scenes/ui/MainMenu.tscn',
-                parentNodePath: 'root',
-                nodeType: 'Label',
-                nodeName: 'TitleLabel',
-                properties: { text: 'My Game' },
-            })
-        );
+    // Test 8: Create UI scene for main menu
+    await runTest('create_scene (MainMenu.tscn)', async () =>
+      client.callToolOrThrow('create_scene', {
+        projectPath,
+        scenePath: 'scenes/ui/MainMenu.tscn',
+        rootNodeType: 'Control',
+      }),
+    );
 
-        // Test 11: Create 3D scene for MeshLibrary
-        await runTest('create_scene (MeshScene.tscn)', async () =>
-            client.callToolOrThrow('create_scene', {
-                projectPath,
-                scenePath: 'scenes/3d/MeshScene.tscn',
-                rootNodeType: 'Node3D',
-            })
-        );
+    // Test 9: Add Button to UI
+    await runTest('add_node (Button)', async () =>
+      client.callToolOrThrow('add_node', {
+        projectPath,
+        scenePath: 'scenes/ui/MainMenu.tscn',
+        parentNodePath: 'root',
+        nodeType: 'Button',
+        nodeName: 'StartButton',
+        properties: { text: 'Start Game' },
+      }),
+    );
 
-        // Test 12: Add MeshInstance3D
-        await runTest('add_node (MeshInstance3D)', async () =>
-            client.callToolOrThrow('add_node', {
-                projectPath,
-                scenePath: 'scenes/3d/MeshScene.tscn',
-                parentNodePath: 'root',
-                nodeType: 'MeshInstance3D',
-                nodeName: 'Cube',
-            })
-        );
+    // Test 10: Add Label to UI
+    await runTest('add_node (Label)', async () =>
+      client.callToolOrThrow('add_node', {
+        projectPath,
+        scenePath: 'scenes/ui/MainMenu.tscn',
+        parentNodePath: 'root',
+        nodeType: 'Label',
+        nodeName: 'TitleLabel',
+        properties: { text: 'My Game' },
+      }),
+    );
 
-        // Test 13: Write a mesh scene with actual mesh data
-        const meshSceneContent = `[gd_scene load_steps=2 format=3]
+    // Test 11: Create 3D scene for MeshLibrary
+    await runTest('create_scene (MeshScene.tscn)', async () =>
+      client.callToolOrThrow('create_scene', {
+        projectPath,
+        scenePath: 'scenes/3d/MeshScene.tscn',
+        rootNodeType: 'Node3D',
+      }),
+    );
+
+    // Test 12: Add MeshInstance3D
+    await runTest('add_node (MeshInstance3D)', async () =>
+      client.callToolOrThrow('add_node', {
+        projectPath,
+        scenePath: 'scenes/3d/MeshScene.tscn',
+        parentNodePath: 'root',
+        nodeType: 'MeshInstance3D',
+        nodeName: 'Cube',
+      }),
+    );
+
+    // Test 13: Write a mesh scene with actual mesh data
+    const meshSceneContent = `[gd_scene load_steps=2 format=3]
 
 [sub_resource type="BoxMesh" id=1]
 
@@ -179,62 +226,63 @@ async function main() {
 [node name="Cube" type="MeshInstance3D" parent="."]
 mesh = SubResource(1)
 `;
-        await runTest('godot_headless_op (write_mesh_scene)', async () =>
-            client.callToolOrThrow('godot_headless_op', {
-                projectPath,
-                operation: 'write_text_file',
-                params: { path: 'scenes/3d/BoxScene.tscn', content: meshSceneContent },
-            })
-        );
+    await runTest('godot_headless_op (write_mesh_scene)', async () =>
+      client.callToolOrThrow('godot_headless_op', {
+        projectPath,
+        operation: 'write_text_file',
+        params: { path: 'scenes/3d/BoxScene.tscn', content: meshSceneContent },
+      }),
+    );
 
-        // Test 14: Export MeshLibrary
-        await runTest('export_mesh_library', async () =>
-            client.callToolOrThrow('export_mesh_library', {
-                projectPath,
-                scenePath: 'scenes/3d/BoxScene.tscn',
-                outputPath: 'resources/MeshLibrary.tres',
-            })
-        );
+    // Test 14: Export MeshLibrary
+    await runTest('export_mesh_library', async () =>
+      client.callToolOrThrow('export_mesh_library', {
+        projectPath,
+        scenePath: 'scenes/3d/BoxScene.tscn',
+        outputPath: 'resources/MeshLibrary.tres',
+      }),
+    );
 
-        // Test 15: Create GDScript
-        await runTest('godot_headless_op (create_script)', async () =>
-            client.callToolOrThrow('godot_headless_op', {
-                projectPath,
-                operation: 'create_script',
-                params: {
-                    scriptPath: 'scripts/player.gd',
-                    extends: 'CharacterBody2D',
-                    template: 'minimal'
-                },
-            })
-        );
+    // Test 15: Create GDScript
+    await runTest('godot_headless_op (create_script)', async () =>
+      client.callToolOrThrow('godot_headless_op', {
+        projectPath,
+        operation: 'create_script',
+        params: {
+          scriptPath: 'scripts/player.gd',
+          extends: 'CharacterBody2D',
+          template: 'minimal',
+        },
+      }),
+    );
 
-        // Test 16: Get project info after all changes
-        await runTest('get_project_info (final)', async () =>
-            client.callToolOrThrow('get_project_info', { projectPath })
-        );
+    // Test 16: Get project info after all changes
+    await runTest('get_project_info (final)', async () =>
+      client.callToolOrThrow('get_project_info', { projectPath }),
+    );
+  } finally {
+    client.dispose();
+    server.kill();
+  }
 
-    } finally {
-        client.dispose();
-        server.kill();
-    }
+  // Summary
+  console.log('\n=== Summary ===');
+  const passed = results.filter((r) => r.ok).length;
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(`Passed: ${passed}, Failed: ${failed}`);
 
-    // Summary
-    console.log('\n=== Summary ===');
-    const passed = results.filter(r => r.ok).length;
-    const failed = results.filter(r => !r.ok).length;
-    console.log(`Passed: ${passed}, Failed: ${failed}`);
-
-    if (failed > 0) {
-        console.log('\nFailed tests:');
-        results.filter(r => !r.ok).forEach(r => {
-            console.log(`  - ${r.name}: ${r.error}`);
-        });
-        process.exit(1);
-    }
+  if (failed > 0) {
+    console.log('\nFailed tests:');
+    results
+      .filter((r) => !r.ok)
+      .forEach((r) => {
+        console.log(`  - ${r.name}: ${r.error}`);
+      });
+    process.exit(1);
+  }
 }
 
-main().catch(err => {
-    console.error(err);
-    process.exit(1);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
 });

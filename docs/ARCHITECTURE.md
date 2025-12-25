@@ -2,8 +2,8 @@
 
 `godot-mcp-omni` is an MCP server that lets an AI drive Godot in two ways:
 
-1) **Headless ops (fast / CI-friendly)** via `godot --headless --script ...` running `src/scripts/godot_operations.gd`.
-2) **In-editor ops (full editor power)** via a Godot `EditorPlugin` addon that exposes a local TCP JSON-RPC bridge.
+1. **Headless ops (fast / CI-friendly)** via `godot --headless --script ...` running `src/scripts/godot_operations.gd`.
+2. **In-editor ops (full editor power)** via a Godot `EditorPlugin` addon that exposes a local TCP JSON-RPC bridge.
 
 Related docs:
 
@@ -40,6 +40,6 @@ Addon path: `addons/godot_mcp_bridge/`
 
 Client flow:
 
-1) Connect and send `{"type":"hello","token":"..."}`.
-2) Receive `{"type":"hello_ok","capabilities":{...}}`.
-3) Send requests `{"id":1,"method":"open_scene","params":{...}}` and receive `{"id":1,"ok":true,"result":{...}}`.
+1. Connect and send `{"type":"hello","token":"..."}`.
+2. Receive `{"type":"hello_ok","capabilities":{...}}`.
+3. Send requests `{"id":1,"method":"open_scene","params":{...}}` and receive `{"id":1,"ok":true,"result":{...}}`.

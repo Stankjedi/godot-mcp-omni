@@ -7,14 +7,20 @@ import { spawn } from 'child_process';
 import { detectGodotPath, isValidGodotPath } from './godot_cli.js';
 import { JsonRpcProcessClient } from './utils/jsonrpc_process_client.js';
 
-async function ensureTempProjectHasAddon(projectPath: string, repoRoot: string): Promise<void> {
+async function ensureTempProjectHasAddon(
+  projectPath: string,
+  repoRoot: string,
+): Promise<void> {
   const srcAddon = path.join(repoRoot, 'addons', 'godot_mcp_bridge');
-  const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');        
+  const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');
   await fs.mkdir(path.dirname(dstAddon), { recursive: true });
   await fs.cp(srcAddon, dstAddon, { recursive: true, force: true });
 }
 
-async function writeMinimalProject(projectPath: string, enablePlugin: boolean): Promise<void> {
+async function writeMinimalProject(
+  projectPath: string,
+  enablePlugin: boolean,
+): Promise<void> {
   await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
 
   const lines: string[] = [
@@ -33,7 +39,11 @@ async function writeMinimalProject(projectPath: string, enablePlugin: boolean): 
     lines.push('');
   }
 
-  await fs.writeFile(path.join(projectPath, 'project.godot'), lines.join('\n'), 'utf8');
+  await fs.writeFile(
+    path.join(projectPath, 'project.godot'),
+    lines.join('\n'),
+    'utf8',
+  );
 }
 
 async function main() {
@@ -49,7 +59,7 @@ async function main() {
   if (!ok) {
     throw new Error(
       `Godot executable is not valid: ${godotPath}\n` +
-        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`
+        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`,
     );
   }
 
@@ -72,14 +82,21 @@ async function main() {
     try {
       await fs.access(path.join(projectPath, 'project.godot'));
     } catch {
-      throw new Error(`Not a valid Godot project (missing project.godot): ${projectPath}`);
+      throw new Error(
+        `Not a valid Godot project (missing project.godot): ${projectPath}`,
+      );
     }
   }
 
-  const token = process.env.DEMO_TOKEN?.trim() || crypto.randomBytes(24).toString('hex');
+  const token =
+    process.env.DEMO_TOKEN?.trim() || crypto.randomBytes(24).toString('hex');
 
   const server = spawn(process.execPath, [serverEntry], {
-    env: { ...process.env, GODOT_PATH: godotPath, DEBUG: debug ? 'true' : 'false' },
+    env: {
+      ...process.env,
+      GODOT_PATH: godotPath,
+      DEBUG: debug ? 'true' : 'false',
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -93,7 +110,8 @@ async function main() {
       // ignore
     }
     try {
-      if (shouldCreateProject) await fs.rm(projectPath, { recursive: true, force: true });
+      if (shouldCreateProject)
+        await fs.rm(projectPath, { recursive: true, force: true });
     } catch {
       // ignore
     }
@@ -103,55 +121,113 @@ async function main() {
     if (debug) process.stderr.write(d);
   });
 
-  const send = async (method: string, params: any, timeoutMs = 30000) => await client.send(method, params, timeoutMs);
-  const callTool = async (name: string, args: Record<string, unknown>) => await client.callToolOrThrow(name, args);
+  const send = async (method: string, params: unknown, timeoutMs = 30000) =>
+    await client.send(method, params, timeoutMs);
+  const callTool = async (name: string, args: Record<string, unknown>) =>
+    await client.callToolOrThrow(name, args);
 
   try {
     const listResp = await send('tools/list', {});
-    if ('error' in listResp) throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
+    if ('error' in listResp)
+      throw new Error(`tools/list error: ${JSON.stringify(listResp.error)}`);
 
     const demoSceneRel = '.godot_mcp/demo/Demo.tscn';
     const demoSceneRes = 'res://.godot_mcp/demo/Demo.tscn';
 
-    await callTool('create_scene', { projectPath, scenePath: demoSceneRel, rootNodeType: 'Node2D' });
+    await callTool('create_scene', {
+      projectPath,
+      scenePath: demoSceneRel,
+      rootNodeType: 'Node2D',
+    });
 
-    await callTool('godot_connect_editor', { projectPath, token, timeoutMs: 60000 });
+    await callTool('godot_connect_editor', {
+      projectPath,
+      token,
+      timeoutMs: 60000,
+    });
 
-    await callTool('godot_rpc', { request_json: { method: 'health', params: {} }, timeoutMs: 10000 });
-    await callTool('godot_rpc', { request_json: { method: 'open_scene', params: { path: demoSceneRes } }, timeoutMs: 20000 });
-
-    await callTool('godot_rpc', { request_json: { method: 'begin_action', params: { name: 'demo:add+set' } } });
     await callTool('godot_rpc', {
-      request_json: {
-        method: 'add_node',
-        params: { parent_path: 'root', type: 'Node2D', name: 'BatchNode', props: { unique_name_in_owner: true } },
-      },
+      request_json: { method: 'health', params: {} },
+      timeoutMs: 10000,
     });
     await callTool('godot_rpc', {
-      request_json: { method: 'set_property', params: { node_path: 'root/BatchNode', property: 'visible', value: false } },
-    });
-    await callTool('godot_rpc', { request_json: { method: 'commit_action', params: {} } });
-
-    await callTool('godot_rpc', { request_json: { method: 'save_scene', params: {} }, timeoutMs: 20000 });
-
-    await callTool('godot_rpc', { request_json: { method: 'filesystem.scan', params: {} }, timeoutMs: 20000 });
-    await callTool('godot_rpc', {
-      request_json: { method: 'filesystem.reimport_files', params: { files: [demoSceneRes] } },
+      request_json: { method: 'open_scene', params: { path: demoSceneRes } },
       timeoutMs: 20000,
     });
 
-    await callTool('godot_inspect', { query_json: { class_name: 'Node2D' }, timeoutMs: 20000 });
-    await callTool('godot_inspect', { query_json: { node_path: '%BatchNode' }, timeoutMs: 20000 });
+    await callTool('godot_rpc', {
+      request_json: {
+        method: 'begin_action',
+        params: { name: 'demo:add+set' },
+      },
+    });
+    await callTool('godot_rpc', {
+      request_json: {
+        method: 'add_node',
+        params: {
+          parent_path: 'root',
+          type: 'Node2D',
+          name: 'BatchNode',
+          props: { unique_name_in_owner: true },
+        },
+      },
+    });
+    await callTool('godot_rpc', {
+      request_json: {
+        method: 'set_property',
+        params: {
+          node_path: 'root/BatchNode',
+          property: 'visible',
+          value: false,
+        },
+      },
+    });
+    await callTool('godot_rpc', {
+      request_json: { method: 'commit_action', params: {} },
+    });
+
+    await callTool('godot_rpc', {
+      request_json: { method: 'save_scene', params: {} },
+      timeoutMs: 20000,
+    });
+
+    await callTool('godot_rpc', {
+      request_json: { method: 'filesystem.scan', params: {} },
+      timeoutMs: 20000,
+    });
+    await callTool('godot_rpc', {
+      request_json: {
+        method: 'filesystem.reimport_files',
+        params: { files: [demoSceneRes] },
+      },
+      timeoutMs: 20000,
+    });
+
+    await callTool('godot_inspect', {
+      query_json: { class_name: 'Node2D' },
+      timeoutMs: 20000,
+    });
+    await callTool('godot_inspect', {
+      query_json: { node_path: '%BatchNode' },
+      timeoutMs: 20000,
+    });
 
     await callTool('godot_rpc', {
       request_json: {
         method: 'call',
-        params: { target_type: 'node', target_id: '%BatchNode', method: 'get_class', args: [] },
+        params: {
+          target_type: 'node',
+          target_id: '%BatchNode',
+          method: 'get_class',
+          args: [],
+        },
       },
     });
 
     console.log('Editor demo completed.');
-    console.log('Undo check: in the editor, press Ctrl/Cmd+Z once. The BatchNode add + visible change should revert together.');
+    console.log(
+      'Undo check: in the editor, press Ctrl/Cmd+Z once. The BatchNode add + visible change should revert together.',
+    );
   } finally {
     await shutdown();
   }

@@ -40,7 +40,10 @@ function startFakeBridge({
 
         if (!authed) {
           if (msg?.type !== 'hello') {
-            send({ type: 'hello_error', error: 'First message must be hello.' });
+            send({
+              type: 'hello_error',
+              error: 'First message must be hello.',
+            });
             return;
           }
           if (String(msg.token ?? '') !== expectedToken) {
@@ -51,7 +54,13 @@ function startFakeBridge({
           if (helloMode === 'error') {
             send({ type: 'hello_error', error: 'Invalid token.' });
           } else {
-            send({ type: 'hello_ok', capabilities: { protocol: 'tcp-jsonl-1', plugin_version: '0.2.0' } });
+            send({
+              type: 'hello_ok',
+              capabilities: {
+                protocol: 'tcp-jsonl-1',
+                plugin_version: '0.2.0',
+              },
+            });
           }
           continue;
         }
@@ -76,10 +85,18 @@ function startFakeBridge({
 }
 
 test('connect resolves on hello_ok', async () => {
-  const bridge = await startFakeBridge({ expectedToken: 'test-token', helloMode: 'ok' });
+  const bridge = await startFakeBridge({
+    expectedToken: 'test-token',
+    helloMode: 'ok',
+  });
   const client = new EditorBridgeClient();
   try {
-    const hello = await client.connect({ host: '127.0.0.1', port: bridge.port, token: 'test-token', timeoutMs: 200 });
+    const hello = await client.connect({
+      host: '127.0.0.1',
+      port: bridge.port,
+      token: 'test-token',
+      timeoutMs: 200,
+    });
     assert.equal(hello.type, 'hello_ok');
   } finally {
     client.close();
@@ -88,12 +105,20 @@ test('connect resolves on hello_ok', async () => {
 });
 
 test('connect rejects on hello_error', async () => {
-  const bridge = await startFakeBridge({ expectedToken: 'test-token', helloMode: 'error' });
+  const bridge = await startFakeBridge({
+    expectedToken: 'test-token',
+    helloMode: 'error',
+  });
   const client = new EditorBridgeClient();
   try {
     await assert.rejects(
-      client.connect({ host: '127.0.0.1', port: bridge.port, token: 'test-token', timeoutMs: 200 }),
-      /token/i
+      client.connect({
+        host: '127.0.0.1',
+        port: bridge.port,
+        token: 'test-token',
+        timeoutMs: 200,
+      }),
+      /token/i,
     );
   } finally {
     client.close();
@@ -104,12 +129,19 @@ test('connect rejects on hello_error', async () => {
 test('request resolves with matching id', async () => {
   const bridge = await startFakeBridge({
     onRequest: (msg, socket) => {
-      socket.write(`${JSON.stringify({ id: msg.id, ok: true, result: { pong: true } })}\n`);
+      socket.write(
+        `${JSON.stringify({ id: msg.id, ok: true, result: { pong: true } })}\n`,
+      );
     },
   });
   const client = new EditorBridgeClient();
   try {
-    await client.connect({ host: '127.0.0.1', port: bridge.port, token: 'test-token', timeoutMs: 200 });
+    await client.connect({
+      host: '127.0.0.1',
+      port: bridge.port,
+      token: 'test-token',
+      timeoutMs: 200,
+    });
     const resp = await client.request('ping', {}, 200);
     assert.equal(resp.id, 1);
     assert.equal(resp.ok, true);
@@ -127,7 +159,12 @@ test('request rejects on timeout when no response', async () => {
   });
   const client = new EditorBridgeClient();
   try {
-    await client.connect({ host: '127.0.0.1', port: bridge.port, token: 'test-token', timeoutMs: 200 });
+    await client.connect({
+      host: '127.0.0.1',
+      port: bridge.port,
+      token: 'test-token',
+      timeoutMs: 200,
+    });
     await assert.rejects(client.request('ping', {}, 50), /timeout/i);
   } finally {
     client.close();
@@ -143,7 +180,12 @@ test('pending requests reject on socket close', async () => {
   });
   const client = new EditorBridgeClient();
   try {
-    await client.connect({ host: '127.0.0.1', port: bridge.port, token: 'test-token', timeoutMs: 200 });
+    await client.connect({
+      host: '127.0.0.1',
+      port: bridge.port,
+      token: 'test-token',
+      timeoutMs: 200,
+    });
     await assert.rejects(client.request('ping', {}, 200), /socket closed/i);
   } finally {
     client.close();

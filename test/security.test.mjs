@@ -22,13 +22,25 @@ test('resolveInsideProject allows inside paths and blocks escapes', () => {
   try {
     assert.equal(
       resolveInsideProject(projectRoot, 'res://scenes/main.tscn'),
-      path.join(projectRoot, 'scenes', 'main.tscn')
+      path.join(projectRoot, 'scenes', 'main.tscn'),
     );
-    assert.equal(resolveInsideProject(projectRoot, 'scenes/main.tscn'), path.join(projectRoot, 'scenes', 'main.tscn'));
+    assert.equal(
+      resolveInsideProject(projectRoot, 'scenes/main.tscn'),
+      path.join(projectRoot, 'scenes', 'main.tscn'),
+    );
 
-    assert.throws(() => resolveInsideProject(projectRoot, '../outside.txt'), /Path escapes project root/u);
-    assert.throws(() => resolveInsideProject(projectRoot, 'res://../outside.txt'), /Path escapes project root/u);
-    assert.throws(() => resolveInsideProject(projectRoot, path.join(outsideRoot, 'x.txt')), /Path escapes project root/u);
+    assert.throws(
+      () => resolveInsideProject(projectRoot, '../outside.txt'),
+      /Path escapes project root/u,
+    );
+    assert.throws(
+      () => resolveInsideProject(projectRoot, 'res://../outside.txt'),
+      /Path escapes project root/u,
+    );
+    assert.throws(
+      () => resolveInsideProject(projectRoot, path.join(outsideRoot, 'x.txt')),
+      /Path escapes project root/u,
+    );
   } finally {
     fs.rmSync(projectRoot, { recursive: true, force: true });
     fs.rmSync(outsideRoot, { recursive: true, force: true });
@@ -39,7 +51,10 @@ test('assertDangerousOpsAllowed gates dangerous ops', () => {
   const prev = process.env.ALLOW_DANGEROUS_OPS;
   try {
     delete process.env.ALLOW_DANGEROUS_OPS;
-    assert.throws(() => assertDangerousOpsAllowed('export_mesh_library'), /Dangerous operation blocked/u);
+    assert.throws(
+      () => assertDangerousOpsAllowed('export_mesh_library'),
+      /Dangerous operation blocked/u,
+    );
 
     process.env.ALLOW_DANGEROUS_OPS = 'true';
     assert.doesNotThrow(() => assertDangerousOpsAllowed('export_mesh_library'));

@@ -21,7 +21,9 @@ function normalizeNewlines(text) {
 
 function serializePackedStringArray(values) {
   const uniq = Array.from(new Set(values)).filter(Boolean);
-  const quoted = uniq.map((v) => `"${String(v).replaceAll('"', '\\"')}"`).join(', ');
+  const quoted = uniq
+    .map((v) => `"${String(v).replaceAll('"', '\\"')}"`)
+    .join(', ');
   return `PackedStringArray(${quoted})`;
 }
 
@@ -63,12 +65,18 @@ function ensureEditorPluginEnabled(projectGodotText, pluginId) {
 
   if (enabledLineIndex === -1) {
     const out = [...lines];
-    out.splice(sectionEnd, 0, `enabled=${serializePackedStringArray([pluginId])}`);
+    out.splice(
+      sectionEnd,
+      0,
+      `enabled=${serializePackedStringArray([pluginId])}`,
+    );
     return out.join('\n');
   }
 
   const enabledLine = lines[enabledLineIndex];
-  const matches = Array.from(enabledLine.matchAll(/"([^"]*)"/gu)).map((m) => m[1]);
+  const matches = Array.from(enabledLine.matchAll(/"([^"]*)"/gu)).map(
+    (m) => m[1],
+  );
   const next = matches.includes(pluginId) ? matches : [...matches, pluginId];
 
   const out = [...lines];
@@ -90,7 +98,9 @@ async function main() {
   const absProjectPath = path.resolve(projectPath);
   const projectGodotPath = path.join(absProjectPath, 'project.godot');
   if (!(await fs.pathExists(projectGodotPath))) {
-    throw new Error(`Not a Godot project (missing project.godot): ${absProjectPath}`);
+    throw new Error(
+      `Not a Godot project (missing project.godot): ${absProjectPath}`,
+    );
   }
 
   const srcAddon = path.join(repoRoot, 'addons', 'godot_mcp_bridge');
@@ -99,7 +109,7 @@ async function main() {
 
   if (await fs.pathExists(lockPath)) {
     throw new Error(
-      `Editor bridge appears to be running. Close the editor before syncing the addon. (${lockPath})`
+      `Editor bridge appears to be running. Close the editor before syncing the addon. (${lockPath})`,
     );
   }
 
@@ -124,7 +134,7 @@ async function main() {
         projectGodotPath,
       },
       logs,
-    })
+    }),
   );
 }
 
