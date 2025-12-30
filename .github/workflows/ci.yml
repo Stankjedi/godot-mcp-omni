@@ -38,6 +38,9 @@ jobs:
       - name: Prompt.md lint (English-only)
         run: node ../devplan/scripts/check_prompt_english_only.mjs --check
 
+      - name: Verify tools doc (drift check)
+        run: npm run verify:tools-doc
+
       - name: Verify (CI-safe)
         run: npm run verify:all
 
@@ -76,6 +79,9 @@ jobs:
           set -euxo pipefail
           GODOT_PATH="$(node scripts/install_godot.js --version 4.5.1-stable --platform linux-x86_64)"
           echo "GODOT_PATH=$GODOT_PATH" >> "$GITHUB_ENV"
+
+      - name: Verify examples (with Godot)
+        run: npm run verify:examples
 
       - name: Test (with Godot)
         run: npm test

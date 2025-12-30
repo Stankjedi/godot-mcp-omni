@@ -112,6 +112,9 @@ npm run build
   - `--help`, `--version`
   - `--doctor`: 서버를 시작하지 않고 환경/프로젝트 점검 후 종료 (exit code: 0/1)
     - (선택) `--project <path>`: 프로젝트 체크 활성화(미지정 시 환경 체크만 수행)
+      - 참고: `--project` 사용 시 Doctor가 프로젝트에 **브리지 애드온을 자동 동기화/활성화**하고, 필요하면 `.godot_mcp_token`을 **자동 생성**할 수 있습니다(토큰 값은 출력하지 않음).
+      - 또한 가능한 경우 **headless 에디터를 자동 실행**하여 Editor Bridge 연결(`health`)까지 검증합니다.
+      - (WSL 주의) WSL에서 Windows Godot(`.exe`)를 실행하는 경우, 연결 검증을 위해 **0.0.0.0 바인딩 + WSL 게이트웨이 IP** 경유 접속을 시도할 수 있습니다.
     - (선택) `--json`: 결과를 JSON으로 출력(기계 판독용, `--doctor`와 함께만 사용 가능)
       - 스키마(요약): `{ ok, summary, details: { godot, project? }, suggestions }`
   - `--godot-path <path>`: `GODOT_PATH` 대신 명시적으로 Godot 경로 지정(우선 적용)
@@ -124,6 +127,12 @@ npm run build
 
 ```bash
 node build/index.js --doctor --json --godot-path /path/to/godot
+```
+
+프로젝트 포함 예시:
+
+```bash
+node build/index.js --doctor --json --project /path/to/godot-project --godot-path /path/to/godot
 ```
 
 #### ✅ MCP 설정 자동 생성

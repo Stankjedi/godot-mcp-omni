@@ -118,6 +118,39 @@ function run(cmd, args, { cwd } = {}) {
   );
 }
 
+function hasCommand(cmd, args = ['--help']) {
+  const res = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  if (res.error && typeof res.error === 'object') {
+    const code = res.error.code;
+    if (code === 'ENOENT' || code === 'EACCES') return false;
+  }
+  return true;
+}
+
+function extractZip(zipPath, destDir) {
+  if (hasCommand('unzip')) {
+    run('unzip', ['-o', '-q', zipPath, '-d', destDir]);
+    return;
+  }
+
+  if (hasCommand('python3', ['-c', 'import sys'])) {
+    run('python3', ['-m', 'zipfile', '-e', zipPath, destDir]);
+    return;
+  }
+
+  if (hasCommand('python', ['-c', 'import sys'])) {
+    run('python', ['-m', 'zipfile', '-e', zipPath, destDir]);
+    return;
+  }
+
+  throw new Error(
+    'Zip extraction requires either `unzip`, `python3`, or `python` to be available on PATH.',
+  );
+}
+
 async function ensureExecutableMode(exePath, isWindows) {
   if (isWindows) return;
   try {
@@ -167,7 +200,7 @@ async function main() {
       run('curl', ['-fsSL', '-o', zipPath, url]);
     }
 
-    run('unzip', ['-o', '-q', zipPath, '-d', cacheDir]);
+    extractZip(zipPath, cacheDir);
 
     if (!(await fileExists(exePath))) {
       throw new Error(

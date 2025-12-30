@@ -67,6 +67,11 @@ test('CLI --doctor --json prints JSON-only output and exits non-zero on failure'
   assert.equal(json.ok, false);
   assert.ok(json.details, 'expected JSON to have details');
   assert.ok(json.details.godot, 'expected JSON to have details.godot');
+  assert.ok(json.details.checks, 'expected JSON to have details.checks');
+  assert.ok(
+    typeof json.details.checks.mcpServer?.ok === 'boolean',
+    'expected JSON to include checks.mcpServer.ok',
+  );
 });
 
 test('CLI --doctor --project reports .godot_mcp_host as non-fatal (text + JSON)', () => {
@@ -113,6 +118,48 @@ test('CLI --doctor --project reports .godot_mcp_host as non-fatal (text + JSON)'
       'expected JSON to include details.project',
     );
     assert.equal(json.details.project.hasHostFile, false);
+    assert.equal(json.details.project.hasBridgeAddon, true);
+    assert.equal(json.details.project.hasBridgePluginEnabled, true);
+    assert.equal(json.details.project.hasTokenFile, true);
+  } finally {
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
+test('CLI --doctor --project auto-sets up bridge addon + plugin + token', () => {
+  const projectPath = mkdtemp('godot-mcp-omni-cli-doctor-project-plugins-');
+  try {
+    writeMinimalProject(projectPath, 'DoctorProjectPlugins');
+
+    const resJson = spawnSync(
+      process.execPath,
+      [
+        buildIndexPath,
+        '--doctor',
+        '--json',
+        '--project',
+        projectPath,
+        '--godot-path',
+        '/definitely/invalid',
+      ],
+      { encoding: 'utf8' },
+    );
+
+    assert.notEqual(resJson.status, 0);
+    const json = JSON.parse(resJson.stdout.trim());
+    assert.ok(
+      json.details?.checks?.projectSetup,
+      'expected JSON to include details.checks.projectSetup',
+    );
+    assert.equal(json.details.checks.projectSetup.ok, true);
+
+    assert.ok(
+      json.details?.project,
+      'expected JSON to include details.project',
+    );
+    assert.equal(json.details.project.hasBridgeAddon, true);
+    assert.equal(json.details.project.hasBridgePluginEnabled, true);
+    assert.equal(json.details.project.hasTokenFile, true);
   } finally {
     fs.rmSync(projectPath, { recursive: true, force: true });
   }

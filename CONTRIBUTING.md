@@ -68,7 +68,11 @@ Some tests are skipped unless `GODOT_PATH` is set.
 - One-click local runners (installs pinned Godot automatically when needed):
   - `npm run test:with-godot`
   - `npm run verify:scenarios:with-godot`
-  - Note: the first run may download a large archive and cache it under `godot-mcp-omni/.cache/godot/`.
+  - Note:
+    - The first run may download a large archive from GitHub Releases and extract it (this can take a while).
+    - Cache location: `godot-mcp-omni/.cache/godot/<version>/<platform>/`
+    - Cache cleanup: delete `godot-mcp-omni/.cache/godot/` (or a specific `<version>/<platform>` folder) to force a re-download.
+    - `.cache/` is git-ignored and must not be committed.
 - Optional GUI capture test:
   - Set `GODOT_MCP_GUI_TEST=true` in addition to `GODOT_PATH`.
 
