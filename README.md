@@ -131,7 +131,7 @@ node build/index.js --doctor --json --godot-path /path/to/godot
 IDE에서 사용할 MCP 설정을 쉽게 생성할 수 있습니다:
 
 ```bash
-node build/index.js --print-mcp-config --godot-path /path/to/godot
+node build/index.js --print-mcp-config --godot-path "C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe"
 ```
 
 출력 예시:
@@ -141,7 +141,7 @@ node build/index.js --print-mcp-config --godot-path /path/to/godot
   "command": "node",
   "args": ["/abs/path/to/godot-mcp-omni/build/index.js"],
   "env": {
-    "GODOT_PATH": "/path/to/godot"
+    "GODOT_PATH": "C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe"
   }
 }
 ```
@@ -150,15 +150,14 @@ node build/index.js --print-mcp-config --godot-path /path/to/godot
 
 #### ✅ 로컬 환경 변수(권장)
 
-- `GODOT_PATH`를 명시하면 Godot 탐지가 안정적입니다.
-  - Windows 예시: `C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe`
-  - WSL 예시: `/mnt/c/Path/To/Godot_v4.5.1-stable_win64_console.exe`
+- `GODOT_PATH`는 **항상 Windows 경로(C:\\...)**로 지정하는 것을 표준으로 합니다.
+  - 예시: `C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe`
 
-#### ✅ 경로(Windows/WSL) 헷갈릴 때 체크리스트
+#### ✅ 경로 헷갈릴 때 체크리스트
 
-- VS Code/Cursor가 **WSL Remote**로 열려 있으면: `command/args/GODOT_PATH` 모두 **WSL 경로**(`/mnt/c/...`)로 맞추세요.
-- VS Code/Cursor가 **Windows 로컬**로 실행 중이면: `command/args/GODOT_PATH` 모두 **Windows 경로**(`C:\\...`)로 맞추세요.
-- 경로가 섞이면 서버 실행/프로세스 스폰이 실패할 수 있습니다.
+- `GODOT_PATH`는 **Windows 경로**(`C:\\...`)로 고정합니다.
+- MCP 서버 실행 환경에 따라 `command/args`만 해당 OS 경로로 맞추세요(Windows에서 실행하면 Windows 경로, WSL에서 실행하면 WSL 경로).
+- (WSL에서 서버를 실행하더라도) `GODOT_PATH`가 Windows 경로이면 서버가 내부적으로 실행 가능한 경로로 처리합니다.
 
 ---
 
@@ -302,7 +301,7 @@ npm run verify:readme
 npm run verify:sprite
 
 # 경로를 명시(override)하고 싶으면:
-GODOT_PATH="/abs/path/to/godot" npm run verify:examples
+GODOT_PATH="C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe" npm run verify:examples
 ```
 
 ### 3) Viewport 캡처 주의사항

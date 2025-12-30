@@ -2,7 +2,10 @@ import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { spawn } from 'child_process';
 
-import { normalizeGodotArgsForHost } from '../godot_cli.js';
+import {
+  normalizeGodotArgsForHost,
+  normalizeGodotPathForHost,
+} from '../godot_cli.js';
 import { EditorBridgeClient } from '../editor_bridge_client.js';
 import type { BridgeHelloOk } from '../editor_bridge_client.js';
 import { assertEditorRpcAllowed } from '../security.js';
@@ -344,9 +347,10 @@ export function createEditorToolHandlers(
           if (!verified) {
             client.close();
             const godotPath = await ctx.ensureGodotPath(customGodotPath);
+            const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
             spawn(
-              godotPath,
-              normalizeGodotArgsForHost(godotPath, [
+              resolvedGodotPath,
+              normalizeGodotArgsForHost(resolvedGodotPath, [
                 '-e',
                 '--path',
                 projectPath,
@@ -376,9 +380,10 @@ export function createEditorToolHandlers(
             }
             if (!lockFileExists) {
               const godotPath = await ctx.ensureGodotPath(customGodotPath);
+              const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
               spawn(
-                godotPath,
-                normalizeGodotArgsForHost(godotPath, [
+                resolvedGodotPath,
+                normalizeGodotArgsForHost(resolvedGodotPath, [
                   '-e',
                   '--path',
                   projectPath,
@@ -401,9 +406,10 @@ export function createEditorToolHandlers(
           } else {
             // Fallback: launch editor if no server is listening.
             const godotPath = await ctx.ensureGodotPath(customGodotPath);
+            const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
             spawn(
-              godotPath,
-              normalizeGodotArgsForHost(godotPath, [
+              resolvedGodotPath,
+              normalizeGodotArgsForHost(resolvedGodotPath, [
                 '-e',
                 '--path',
                 projectPath,

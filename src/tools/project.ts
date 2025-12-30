@@ -5,7 +5,11 @@ import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import net from 'net';
 
-import { execGodot, normalizeGodotArgsForHost } from '../godot_cli.js';
+import {
+  execGodot,
+  normalizeGodotArgsForHost,
+  normalizeGodotPathForHost,
+} from '../godot_cli.js';
 import {
   ValidationError,
   asNonEmptyString,
@@ -580,9 +584,14 @@ export function createProjectToolHandlers(
           }
         }
 
+        const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
         spawn(
-          godotPath,
-          normalizeGodotArgsForHost(godotPath, ['-e', '--path', projectPath]),
+          resolvedGodotPath,
+          normalizeGodotArgsForHost(resolvedGodotPath, [
+            '-e',
+            '--path',
+            projectPath,
+          ]),
           {
             stdio: 'ignore',
             detached: true,
@@ -648,9 +657,10 @@ export function createProjectToolHandlers(
           cmdArgs.push(scene);
         }
 
+        const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
         const proc = spawn(
-          godotPath,
-          normalizeGodotArgsForHost(godotPath, cmdArgs),
+          resolvedGodotPath,
+          normalizeGodotArgsForHost(resolvedGodotPath, cmdArgs),
           { stdio: 'pipe', windowsHide: true },
         );
         const output: string[] = [];

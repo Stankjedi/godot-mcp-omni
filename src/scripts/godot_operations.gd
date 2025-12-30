@@ -58,7 +58,7 @@ func _ensure_op_registry() -> void:
 	_op_registry.clear()
 	_op_modules.clear()
 
-	var base_dir := get_script().resource_path.get_base_dir()
+	var base_dir := String(get_script().resource_path).get_base_dir()
 	var module_paths := [
 		base_dir + "/godot_ops/batch_ops.gd",
 		base_dir + "/godot_ops/doctor_ops.gd",

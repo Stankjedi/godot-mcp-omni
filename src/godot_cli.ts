@@ -36,6 +36,19 @@ function shouldTranslateWslPathsForGodot(godotPath: string): boolean {
   return process.platform !== 'win32' && isWindowsGodotBinaryPath(godotPath);
 }
 
+function isWindowsDriveAbsolutePath(p: string): boolean {
+  return /^[a-zA-Z]:[\\/]/u.test(p.trim());
+}
+
+function windowsPathToWslPath(p: string): string | undefined {
+  const trimmed = p.trim();
+  const match = trimmed.match(/^([a-zA-Z]):[\\/](.*)$/u);
+  if (!match) return undefined;
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replaceAll('\\', '/');
+  return `/mnt/${drive}/${rest}`;
+}
+
 function wslPathToWindowsPath(p: string): string | undefined {
   const trimmed = p.trim();
   const match = trimmed.match(/^\/mnt\/([a-zA-Z])\/(.*)$/u);
@@ -49,6 +62,18 @@ function translateGodotArgValue(value: string): string {
   if (!value) return value;
   if (value.startsWith('res://') || value.startsWith('user://')) return value;
   return wslPathToWindowsPath(value) ?? value;
+}
+
+export function normalizeGodotPathForHost(godotPath: string): string {
+  const trimmed = godotPath.trim();
+  if (!trimmed || trimmed === 'godot') return trimmed;
+  if (process.platform === 'win32') return trimmed;
+
+  if (isWindowsDriveAbsolutePath(trimmed)) {
+    return windowsPathToWslPath(trimmed) ?? trimmed;
+  }
+
+  return trimmed;
 }
 
 export function normalizeGodotArgsForHost(
@@ -106,8 +131,9 @@ export function isValidGodotPathSync(
   debug?: (m: string) => void,
 ): boolean {
   try {
-    debug?.(`Quick-validating Godot path: ${path}`);
-    return path === 'godot' || existsSync(path);
+    const resolved = normalizeGodotPathForHost(path);
+    debug?.(`Quick-validating Godot path: ${path} (resolved: ${resolved})`);
+    return resolved === 'godot' || existsSync(resolved);
   } catch (error) {
     debug?.(`Invalid Godot path: ${path}, error: ${String(error)}`);
     return false;
@@ -122,15 +148,16 @@ export async function isValidGodotPath(
   if (cache.has(path)) return cache.get(path) ?? false;
 
   try {
-    debug?.(`Validating Godot path: ${path}`);
+    const resolved = normalizeGodotPathForHost(path);
+    debug?.(`Validating Godot path: ${path} (resolved: ${resolved})`);
 
-    if (path !== 'godot' && !existsSync(path)) {
-      debug?.(`Path does not exist: ${path}`);
+    if (resolved !== 'godot' && !existsSync(resolved)) {
+      debug?.(`Path does not exist: ${resolved}`);
       cache.set(path, false);
       return false;
     }
 
-    await execFileAsync(path, ['--version'], { windowsHide: true });
+    await execFileAsync(resolved, ['--version'], { windowsHide: true });
     cache.set(path, true);
     return true;
   } catch (error) {
@@ -405,7 +432,8 @@ export async function execGodot(
   args: string[],
 ): Promise<ExecResult> {
   return await new Promise<ExecResult>((resolve) => {
-    const normalizedArgs = normalizeGodotArgsForHost(godotPath, args);
+    const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
+    const normalizedArgs = normalizeGodotArgsForHost(resolvedGodotPath, args);
     let settled = false;
     const settle = (value: ExecResult) => {
       if (settled) return;
@@ -414,7 +442,7 @@ export async function execGodot(
     };
 
     const child = execFile(
-      godotPath,
+      resolvedGodotPath,
       normalizedArgs,
       { windowsHide: true },
       (error, stdout, stderr) => {

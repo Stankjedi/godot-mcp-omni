@@ -5,7 +5,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
 
-import { normalizeGodotArgsForHost } from '../build/godot_cli.js';
+import {
+  normalizeGodotArgsForHost,
+  normalizeGodotPathForHost,
+} from '../build/godot_cli.js';
 import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
 import {
   isWindowsExePath,
@@ -90,13 +93,14 @@ async function waitForPortOpen(host, port, timeoutMs) {
 }
 
 function spawnGodotEditor(godotPath, projectPath, env) {
-  const args = normalizeGodotArgsForHost(godotPath, [
+  const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
+  const args = normalizeGodotArgsForHost(resolvedGodotPath, [
     '--headless',
     '-e',
     '--path',
     projectPath,
   ]);
-  return spawn(godotPath, args, {
+  return spawn(resolvedGodotPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
     env: {
