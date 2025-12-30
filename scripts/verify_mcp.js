@@ -2,38 +2,26 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
-import { spawn } from 'child_process';
 
-import { detectGodotPath, isValidGodotPath } from '../build/godot_cli.js';
-import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
+import {
+  createStepRunner,
+  formatError,
+  resolveGodotPath,
+  spawnMcpServer,
+  wait,
+} from './mcp_test_harness.js';
 
 const TOKEN = (process.env.VERIFY_MCP_TOKEN ?? 'verify-token').trim();
 const PORT = Number.parseInt(process.env.VERIFY_MCP_PORT ?? '8765', 10);
 const DEBUG = process.env.VERIFY_MCP_DEBUG === 'true';
 const SKIP_EDITOR = process.env.VERIFY_MCP_SKIP_EDITOR === 'true';
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function ensureGodotPath() {
-  const fromEnv = process.env.GODOT_PATH?.trim();
-  const detected =
-    fromEnv || (await detectGodotPath({ strictPathValidation: true }));
-  if (process.env.VERIFY_MCP_SKIP_GODOT_CHECK === 'true') {
-    return detected;
-  }
-  const cache = new Map();
-  const ok = await isValidGodotPath(detected, cache);
-  if (!ok) {
-    throw new Error(
-      `Godot executable is not valid: ${detected}\n` +
-        `Set GODOT_PATH to a working Godot binary, or ensure 'godot --version' succeeds.`,
-    );
-  }
-  return detected;
-}
-
-function formatError(error) {
-  return error instanceof Error ? error.message : String(error);
+  return await resolveGodotPath({
+    skipValidation: process.env.VERIFY_MCP_SKIP_GODOT_CHECK === 'true',
+    exampleCommand:
+      'GODOT_PATH=/abs/path/to/godot VERIFY_MCP_SKIP_EDITOR=true npm run verify:mcp',
+  });
 }
 
 async function main() {
@@ -66,52 +54,21 @@ async function main() {
   );
   await fs.writeFile(path.join(projectPath, '.godot_mcp_token'), TOKEN, 'utf8');
 
-  const server = spawn(process.execPath, [serverEntry], {
+  const { client, shutdown } = spawnMcpServer({
+    serverEntry,
     env: {
-      ...process.env,
       GODOT_PATH: godotPath,
       ALLOW_DANGEROUS_OPS: 'true',
       GODOT_MCP_TOKEN: TOKEN,
       GODOT_MCP_PORT: String(PORT),
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-
-  const client = new JsonRpcProcessClient(server);
-  const results = [];
-
-  const shutdown = async () => {
-    client.dispose();
-    try {
-      server.kill();
-    } catch {
-      // ignore
-    }
-    try {
+    debugStderr: DEBUG,
+    cleanup: async () => {
       await fs.rm(workspaceRoot, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
-  };
-
-  server.stderr.on('data', (d) => {
-    if (DEBUG) process.stderr.write(d);
+    },
   });
 
-  const runStep = async (label, fn) => {
-    console.log(`RUN: ${label}`);
-    try {
-      const value = await fn();
-      results.push({ label, ok: true });
-      console.log(`PASS: ${label}`);
-      return value;
-    } catch (error) {
-      results.push({ label, ok: false, error: formatError(error) });
-      console.log(`FAIL: ${label} -> ${formatError(error)}`);
-      return null;
-    }
-  };
+  const { runStep, results } = createStepRunner();
 
   try {
     await wait(200);
@@ -233,6 +190,7 @@ async function main() {
     await runStep('run_project', async () =>
       client.callToolOrThrow('run_project', {
         projectPath,
+        headless: SKIP_EDITOR,
         scene: 'res://.godot_mcp/verify/Verify.tscn',
       }),
     );
@@ -246,11 +204,13 @@ async function main() {
       client.callToolOrThrow('stop_project', {}),
     );
 
-    await runStep('launch_editor', async () =>
-      client.callToolOrThrow('launch_editor', { projectPath }),
-    );
+    if (SKIP_EDITOR) {
+      console.log('SKIP_EDITOR: skipping editor launch and RPC checks');
+    } else {
+      await runStep('launch_editor', async () =>
+        client.callToolOrThrow('launch_editor', { projectPath }),
+      );
 
-    if (!SKIP_EDITOR) {
       await runStep('godot_connect_editor', async () =>
         client.callToolOrThrow('godot_connect_editor', {
           projectPath,

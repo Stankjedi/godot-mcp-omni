@@ -26,5 +26,59 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint (no warnings)
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Devplan drift check
+        run: node ../devplan/scripts/check_devplan_drift.mjs --check
+
+      - name: Prompt.md lint (English-only)
+        run: node ../devplan/scripts/check_prompt_english_only.mjs --check
+
       - name: Verify (CI-safe)
         run: npm run verify:all
+
+      - name: Verify scenarios (CI-safe)
+        run: npm run verify:scenarios
+
+  godot-integration-headless:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: godot-mcp-omni
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'godot-mcp-omni/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Cache Godot (Linux x86_64)
+        uses: actions/cache@v4
+        with:
+          path: godot-mcp-omni/.cache/godot
+          key: godot-4.5.1-stable-linux-x86_64
+
+      - name: Install Godot (pinned)
+        run: |
+          set -euxo pipefail
+          GODOT_PATH="$(node scripts/install_godot.js --version 4.5.1-stable --platform linux-x86_64)"
+          echo "GODOT_PATH=$GODOT_PATH" >> "$GITHUB_ENV"
+
+      - name: Test (with Godot)
+        run: npm test
+
+      - name: Verify MCP (headless)
+        run: VERIFY_MCP_SKIP_EDITOR=true npm run verify:mcp

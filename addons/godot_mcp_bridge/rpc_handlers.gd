@@ -2,6 +2,7 @@ extends RefCounted
 
 const PLUGIN_VERSION := "0.2.0"
 const JSON_TYPE_KEY := "$type"
+const JSON_RESOURCE_KEY := "$resource"
 
 var _plugin
 var _ei
@@ -35,6 +36,7 @@ func capabilities() -> Dictionary:
 			"undo_redo.undo",
 			"undo_redo.redo",
 			"add_node",
+			"create_tilemap",
 			"remove_node",
 			"duplicate_node",
 			"reparent_node",
@@ -94,6 +96,8 @@ func handle(method: String, params: Dictionary) -> Dictionary:
 			return _undo_redo_redo()
 		"add_node":
 			return _add_node(params)
+		"create_tilemap":
+			return _create_tilemap(params)
 		"remove_node":
 			return _remove_node(params)
 		"duplicate_node":
@@ -225,6 +229,65 @@ func _num(v, fallback: float = 0.0) -> float:
 				return float(int(s))
 	return fallback
 
+func _looks_like_res_path(value: String) -> bool:
+	if value.begins_with("res://"):
+		return true
+	if value.find("/") != -1:
+		return true
+	if value.ends_with(".tres") or value.ends_with(".res") or value.ends_with(".tscn"):
+		return true
+	return false
+
+func _resource_from_json(d: Dictionary) -> Resource:
+	if not d.has(JSON_RESOURCE_KEY):
+		return null
+
+	var resource_id := String(d.get(JSON_RESOURCE_KEY, "")).strip_edges()
+	if resource_id.is_empty():
+		return null
+
+	var res: Resource = null
+	var created := false
+	var path_override := ""
+	if d.has("path"):
+		path_override = String(d.get("path", "")).strip_edges()
+	elif d.has("resource_path"):
+		path_override = String(d.get("resource_path", "")).strip_edges()
+
+	if not path_override.is_empty():
+		var res_path := _to_res_path(path_override)
+		if ResourceLoader.exists(res_path):
+			res = load(res_path)
+	elif _looks_like_res_path(resource_id):
+		var res_path_id := _to_res_path(resource_id)
+		if ResourceLoader.exists(res_path_id):
+			res = load(res_path_id)
+
+	if res == null and ClassDB.class_exists(resource_id) and ClassDB.can_instantiate(resource_id):
+		var inst = ClassDB.instantiate(resource_id)
+		if inst is Resource:
+			res = inst
+			created = true
+
+	if res == null:
+		return null
+
+	if d.has("props") and typeof(d.props) == TYPE_DICTIONARY:
+		var props: Dictionary = d.props
+		for key in props.keys():
+			var prop_name := str(key)
+			var expected := _prop_type(res as Resource, prop_name)
+			(res as Resource).set(prop_name, _json_to_variant_for_type(props[key], expected))
+
+	if created and not path_override.is_empty():
+		var save_path := _to_res_path(path_override)
+		if save_path != "" and not ResourceLoader.exists(save_path):
+			var save_err := ResourceSaver.save(res, save_path)
+			if save_err == OK:
+				res = load(save_path)
+
+	return res
+
 func _json_to_variant(value):
 	match typeof(value):
 		TYPE_ARRAY:
@@ -234,6 +297,11 @@ func _json_to_variant(value):
 			return out
 		TYPE_DICTIONARY:
 			var d: Dictionary = value
+			if d.has(JSON_RESOURCE_KEY) and typeof(d.get(JSON_RESOURCE_KEY)) == TYPE_STRING:
+				var res = _resource_from_json(d)
+				if res != null:
+					return res
+				return null
 			if d.has(JSON_TYPE_KEY) and typeof(d.get(JSON_TYPE_KEY)) == TYPE_STRING:
 				var t := str(d.get(JSON_TYPE_KEY)).strip_edges()
 				match t:
@@ -285,6 +353,167 @@ func _json_to_variant(value):
 			return out_d
 		_:
 			return value
+
+func _prop_type(obj: Object, prop: String) -> int:
+	if obj == null:
+		return TYPE_NIL
+	var plist = obj.get_property_list()
+	for p in plist:
+		if typeof(p) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = p
+		if str(d.get("name", "")) == prop:
+			if d.has("type"):
+				return int(d.get("type"))
+	return TYPE_NIL
+
+func _intlike(v: float) -> bool:
+	return abs(v - round(v)) <= 0.000001
+
+func _json_to_variant_for_type(value, expected_type: int):
+	if expected_type == TYPE_INT:
+		if typeof(value) == TYPE_INT:
+			return int(value)
+		if typeof(value) == TYPE_FLOAT:
+			var f := float(value)
+			if _intlike(f):
+				return int(round(f))
+		if typeof(value) == TYPE_STRING:
+			var s := str(value).strip_edges()
+			if s.is_valid_int():
+				return int(s)
+		return value
+
+	if expected_type == TYPE_FLOAT:
+		return _num(value)
+
+	if expected_type == TYPE_VECTOR2:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 2:
+			var a: Array = value
+			return Vector2(_num(a[0]), _num(a[1]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d: Dictionary = value
+			if d.has("x") and d.has("y"):
+				return Vector2(_num(d.get("x")), _num(d.get("y")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR2I:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 2:
+			var a2: Array = value
+			return Vector2i(int(_num(a2[0])), int(_num(a2[1])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d2: Dictionary = value
+			if d2.has("x") and d2.has("y"):
+				return Vector2i(int(_num(d2.get("x"))), int(_num(d2.get("y"))))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR3:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 3:
+			var a3: Array = value
+			return Vector3(_num(a3[0]), _num(a3[1]), _num(a3[2]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d3: Dictionary = value
+			if d3.has("x") and d3.has("y") and d3.has("z"):
+				return Vector3(_num(d3.get("x")), _num(d3.get("y")), _num(d3.get("z")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR3I:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 3:
+			var a3i: Array = value
+			return Vector3i(int(_num(a3i[0])), int(_num(a3i[1])), int(_num(a3i[2])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d3i: Dictionary = value
+			if d3i.has("x") and d3i.has("y") and d3i.has("z"):
+				return Vector3i(int(_num(d3i.get("x"))), int(_num(d3i.get("y"))), int(_num(d3i.get("z"))))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_VECTOR4:
+		if typeof(value) == TYPE_ARRAY and (value as Array).size() >= 4:
+			var a4: Array = value
+			return Vector4(_num(a4[0]), _num(a4[1]), _num(a4[2]), _num(a4[3]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var d4: Dictionary = value
+			if d4.has("x") and d4.has("y") and d4.has("z") and d4.has("w"):
+				return Vector4(_num(d4.get("x")), _num(d4.get("y")), _num(d4.get("z")), _num(d4.get("w")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_COLOR:
+		if typeof(value) == TYPE_ARRAY:
+			var ac: Array = value
+			if ac.size() >= 3:
+				return Color(_num(ac[0]), _num(ac[1]), _num(ac[2]), _num(ac[3], 1.0))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dc: Dictionary = value
+			if dc.has("r") and dc.has("g") and dc.has("b"):
+				return Color(_num(dc.get("r")), _num(dc.get("g")), _num(dc.get("b")), _num(dc.get("a"), 1.0))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_RECT2:
+		if typeof(value) == TYPE_ARRAY:
+			var ar: Array = value
+			if ar.size() >= 4:
+				return Rect2(_num(ar[0]), _num(ar[1]), _num(ar[2]), _num(ar[3]))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dr: Dictionary = value
+			if dr.has("x") and dr.has("y") and dr.has("w") and dr.has("h"):
+				return Rect2(_num(dr.get("x")), _num(dr.get("y")), _num(dr.get("w")), _num(dr.get("h")))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_RECT2I:
+		if typeof(value) == TYPE_ARRAY:
+			var ari: Array = value
+			if ari.size() >= 4:
+				return Rect2i(int(_num(ari[0])), int(_num(ari[1])), int(_num(ari[2])), int(_num(ari[3])))
+		if typeof(value) == TYPE_DICTIONARY:
+			var dri: Dictionary = value
+			if dri.has("x") and dri.has("y") and dri.has("w") and dri.has("h"):
+				return Rect2i(int(_num(dri.get("x"))), int(_num(dri.get("y"))), int(_num(dri.get("w"))), int(_num(dri.get("h"))))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_NODE_PATH:
+		if typeof(value) == TYPE_NODE_PATH:
+			return value
+		if typeof(value) == TYPE_STRING_NAME or typeof(value) == TYPE_STRING:
+			return NodePath(str(value))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_STRING_NAME:
+		if typeof(value) == TYPE_STRING_NAME:
+			return value
+		if typeof(value) == TYPE_STRING:
+			return StringName(str(value))
+		return _json_to_variant(value)
+
+	return _json_to_variant(value)
+
+func _set_if_has(obj: Object, prop: String, value) -> bool:
+	if obj == null:
+		return false
+	var plist = obj.get_property_list()
+	for p in plist:
+		if typeof(p) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = p
+		if str(d.get("name", "")) == prop:
+			obj.set(prop, value)
+			return true
+	return false
+
+func _vec2i_from(value, fallback: Vector2i) -> Vector2i:
+	var v = _json_to_variant(value)
+	if typeof(v) == TYPE_VECTOR2I:
+		return v
+	if typeof(v) == TYPE_VECTOR2:
+		return Vector2i(int((v as Vector2).x), int((v as Vector2).y))
+	if typeof(v) == TYPE_ARRAY:
+		var a: Array = v
+		if a.size() >= 2:
+			return Vector2i(int(_num(a[0])), int(_num(a[1])))
+	if typeof(v) == TYPE_DICTIONARY:
+		var d: Dictionary = v
+		if d.has("x") and d.has("y"):
+			return Vector2i(int(_num(d.get("x"))), int(_num(d.get("y"))))
+	return fallback
 
 func _dangerous_allowed() -> bool:
 	return str(OS.get_environment("ALLOW_DANGEROUS_OPS")).strip_edges() == "true"
@@ -924,6 +1153,7 @@ func _add_node(params: Dictionary) -> Dictionary:
 	var node_name = str(params.get("name", params.get("node_name", params.get("nodeName", ""))))
 	var props_v = params.get("props", params.get("properties", {}))
 	var props: Dictionary = props_v if typeof(props_v) == TYPE_DICTIONARY else {}
+	var ensure_unique = bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
 
 	var root = _scene_root()
 	if root == null:
@@ -945,9 +1175,13 @@ func _add_node(params: Dictionary) -> Dictionary:
 	if node == null or not (node is Node):
 		return _resp_err("Instantiated object is not a Node", { "type": node_type })
 
+	if ensure_unique:
+		node_name = _unique_child_name(parent, node_name)
 	(node as Node).name = node_name
 	for k in props.keys():
-		(node as Node).set(str(k), _json_to_variant(props[k]))
+		var prop_name := str(k)
+		var expected := _prop_type(node as Node, prop_name)
+		(node as Node).set(prop_name, _json_to_variant_for_type(props[k], expected))
 
 	var auto_commit = _ensure_action("godot_mcp:add_node")
 	_undo.force_fixed_history()
@@ -958,19 +1192,165 @@ func _add_node(params: Dictionary) -> Dictionary:
 	_undo.add_undo_method(parent, "remove_child", node)
 	_maybe_commit(auto_commit)
 
-	var requested_path := _join_node_path(parent_path, node_name)
-	var unique_name := ""
-	if _is_unique_name_in_owner(node as Node):
-		unique_name = "%" + str((node as Node).name)
+	var actual_path := _node_path_str(node as Node)
+	var unique_name := _unique_name_str(node as Node)
 	return _resp_ok({
 		"added": true,
 		"type": node_type,
 		"name": node_name,
-		"node_path": requested_path,
+		"node_path": actual_path,
 		"instance_id": (node as Node).get_instance_id(),
 		"instance_id_str": str((node as Node).get_instance_id()),
 		"unique_name_in_owner": _is_unique_name_in_owner(node as Node),
 		"unique_name": unique_name,
+		"ensure_unique_name": ensure_unique,
+	})
+
+func _create_tileset_from_texture(texture_path: String, tile_size: Vector2i, cells: Array) -> Dictionary:
+	var res_path := _to_res_path(texture_path)
+	if res_path.is_empty():
+		return { "ok": false, "message": "Invalid texture path", "texture_path": texture_path }
+	var texture = load(res_path)
+	if texture == null or not (texture is Texture2D):
+		var abs_path := ProjectSettings.globalize_path(res_path)
+		var image := Image.new()
+		var err := image.load(abs_path)
+		if err == OK:
+			if ClassDB.class_has_method("ImageTexture", "create_from_image"):
+				texture = ImageTexture.create_from_image(image)
+			else:
+				var image_tex := ImageTexture.new()
+				image_tex.create_from_image(image)
+				texture = image_tex
+		if texture == null or not (texture is Texture2D):
+			return { "ok": false, "message": "Failed to load texture", "texture_path": res_path }
+
+	var tileset := TileSet.new()
+	var source := TileSetAtlasSource.new()
+	source.texture = texture
+	if not _set_if_has(source, "texture_region_size", tile_size):
+		_set_if_has(source, "tile_size", tile_size)
+	var source_id := tileset.add_source(source)
+
+	var created: Dictionary = {}
+	for c in cells:
+		if typeof(c) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = c
+		var ax := int(_num(d.get("atlas_x", d.get("atlasX", -1))))
+		var ay := int(_num(d.get("atlas_y", d.get("atlasY", -1))))
+		if ax < 0 or ay < 0:
+			continue
+		var key := str(ax) + ":" + str(ay)
+		if created.has(key):
+			continue
+		if source.has_method("create_tile"):
+			source.call("create_tile", Vector2i(ax, ay))
+		created[key] = true
+
+	return { "ok": true, "tileset": tileset, "source_id": source_id, "texture_path": res_path }
+
+func _create_tilemap(params: Dictionary) -> Dictionary:
+	var parent_path = str(params.get("parent_path", params.get("parentPath", "root")))
+	var node_type = str(params.get("node_type", params.get("nodeType", "TileMap")))
+	var node_name = str(params.get("node_name", params.get("nodeName", "")))
+	var props_v = params.get("props", params.get("properties", {}))
+	var props: Dictionary = props_v if typeof(props_v) == TYPE_DICTIONARY else {}
+	var ensure_unique = bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
+
+	if node_name.is_empty():
+		return _resp_err("node_name is required")
+
+	var root = _scene_root()
+	if root == null:
+		return _resp_err("No edited scene")
+
+	var parent = _find_node(parent_path)
+	if parent == null:
+		return _resp_err("Parent node not found", { "parent_path": parent_path })
+
+	if not ClassDB.class_exists(node_type) or not ClassDB.can_instantiate(node_type):
+		return _resp_err("Cannot instantiate type", { "type": node_type })
+
+	var node = ClassDB.instantiate(node_type)
+	if node == null or not (node is Node):
+		return _resp_err("Instantiated object is not a Node", { "type": node_type })
+
+	if ensure_unique:
+		node_name = _unique_child_name(parent, node_name)
+	(node as Node).name = node_name
+
+	for k in props.keys():
+		var prop_name := str(k)
+		var expected := _prop_type(node as Node, prop_name)
+		(node as Node).set(prop_name, _json_to_variant_for_type(props[k], expected))
+
+	var cells: Array = []
+	if params.has("cells") and typeof(params.cells) == TYPE_ARRAY:
+		cells = params.cells
+
+	var tile_set_texture_path := str(params.get("tile_set_texture_path", params.get("tileSetTexturePath", "")))
+	var tile_set_path := str(params.get("tile_set_path", params.get("tileSetPath", "")))
+	var tile_size := _vec2i_from(params.get("tile_size", params.get("tileSize", {})), Vector2i(32, 32))
+
+	var created_source_id := -1
+	var tile_set_current = (node as Node).get("tile_set")
+	if tile_set_current == null and not tile_set_texture_path.is_empty():
+		var tileset_resp := _create_tileset_from_texture(tile_set_texture_path, tile_size, cells)
+		if not bool(tileset_resp.get("ok", false)):
+			return _resp_err(
+				"Failed to build TileSet from texture",
+				{ "texture_path": tile_set_texture_path, "details": tileset_resp }
+			)
+		var tileset_res = tileset_resp.get("tileset")
+		created_source_id = int(tileset_resp.get("source_id", -1))
+		(node as Node).set("tile_set", tileset_res)
+		if not tile_set_path.is_empty():
+			var save_path := _to_res_path(tile_set_path)
+			if save_path != "" and not ResourceLoader.exists(save_path):
+				ResourceSaver.save(tileset_res, save_path)
+
+	if cells.size() > 0:
+		if not (node is TileMap):
+			return _resp_err("Node is not TileMap", { "node_type": node_type })
+		var layer := int(_num(params.get("layer", 0)))
+		for c in cells:
+			if typeof(c) != TYPE_DICTIONARY:
+				continue
+			var d2: Dictionary = c
+			var x := int(_num(d2.get("x", d2.get("col", 0))))
+			var y := int(_num(d2.get("y", d2.get("row", 0))))
+			var source_id := int(_num(d2.get("source_id", d2.get("sourceId", d2.get("id", d2.get("tile", -1))))))
+			if source_id < 0 and created_source_id >= 0:
+				source_id = created_source_id
+			var atlas_x := int(_num(d2.get("atlas_x", d2.get("atlasX", -1))))
+			var atlas_y := int(_num(d2.get("atlas_y", d2.get("atlasY", -1))))
+			var alternative := int(_num(d2.get("alternative", d2.get("alt", d2.get("alternative_id", 0)))))
+			(node as TileMap).set_cell(
+				layer,
+				Vector2i(x, y),
+				source_id,
+				Vector2i(atlas_x, atlas_y),
+				alternative
+			)
+
+	var auto_commit = _ensure_action("godot_mcp:create_tilemap")
+	_undo.force_fixed_history()
+	_undo.add_do_reference(node)
+	_undo.add_do_method(parent, "add_child", node)
+	_undo.force_fixed_history()
+	_undo.add_do_property(node, "owner", root)
+	_undo.add_undo_method(parent, "remove_child", node)
+	_maybe_commit(auto_commit)
+
+	var actual_path := _node_path_str(node as Node)
+	return _resp_ok({
+		"created": true,
+		"type": node_type,
+		"name": node_name,
+		"node_path": actual_path,
+		"cells": cells.size(),
+		"ensure_unique_name": ensure_unique,
 	})
 
 func _remove_node(params: Dictionary) -> Dictionary:
@@ -1163,14 +1543,19 @@ func _instance_scene(params: Dictionary) -> Dictionary:
 	if parent == null:
 		return _resp_err("Parent node not found", { "parent_path": parent_path })
 
+	var ensure_unique := bool(params.get("ensure_unique_name", params.get("ensureUniqueName", true)))
 	var desired := node_name.strip_edges()
 	if desired.is_empty():
 		desired = res_path.get_file().get_basename()
-	var final_name := _unique_child_name(parent, desired)
+	var final_name := desired
+	if ensure_unique:
+		final_name = _unique_child_name(parent, desired)
 	(inst as Node).name = final_name
 
 	for k in props.keys():
-		(inst as Node).set(str(k), _json_to_variant(props[k]))
+		var prop_name := str(k)
+		var expected := _prop_type(inst as Node, prop_name)
+		(inst as Node).set(prop_name, _json_to_variant_for_type(props[k], expected))
 
 	var auto_commit = _ensure_action("godot_mcp:instance_scene")
 	_undo.force_fixed_history()
@@ -1195,6 +1580,7 @@ func _instance_scene(params: Dictionary) -> Dictionary:
 			"name": final_name,
 			"class": (inst as Node).get_class(),
 			"unique_name": _unique_name_str(inst as Node),
+			"ensure_unique_name": ensure_unique,
 		},
 	})
 
@@ -1209,7 +1595,8 @@ func _set_property(params: Dictionary) -> Dictionary:
 		return _resp_err("Node not found", { "node_path": node_path })
 
 	var old_value = node.get(prop)
-	var new_value = _json_to_variant(params.get("value", null))
+	var expected := _prop_type(node, prop)
+	var new_value = _json_to_variant_for_type(params.get("value", null), expected)
 
 	var auto_commit = _ensure_action("godot_mcp:set_property")
 	_undo.add_do_method(node, "set", prop, new_value)
@@ -1382,7 +1769,8 @@ func _generic_set(params: Dictionary) -> Dictionary:
 	if target == null:
 		return _resp_err("Target not found", { "target_type": target_type, "target_id": target_id })
 
-	target.set(prop, _json_to_variant(params.get("value", null)))
+	var expected := _prop_type(target, prop)
+	target.set(prop, _json_to_variant_for_type(params.get("value", null), expected))
 	return _resp_ok({ "set": true })
 
 func _generic_get(params: Dictionary) -> Dictionary:

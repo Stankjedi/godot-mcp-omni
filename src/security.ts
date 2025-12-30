@@ -73,6 +73,8 @@ function rotateAuditLogIfNeeded(auditPath: string): void {
 
 export function isDangerousOp(name: string): boolean {
   const n = name.toLowerCase();
+  // Preview export is safe (writes inside the project) and is used by pixel pipeline tools.
+  if (n === 'op_export_preview') return false;
   return (
     n.includes('delete') ||
     n.includes('remove') ||
@@ -303,7 +305,8 @@ export function assertEditorRpcAllowed(
       'scriptPath',
       'path',
     ]);
-    if (typeof p === 'string' && p.length > 0) resolveInsideProject(projectPath, p);
+    if (typeof p === 'string' && p.length > 0)
+      resolveInsideProject(projectPath, p);
     return;
   }
 

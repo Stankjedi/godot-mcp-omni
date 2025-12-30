@@ -2,6 +2,7 @@
 extends SceneTree
 
 const JSON_TYPE_KEY := "$type"
+const JSON_RESOURCE_KEY := "$resource"
 
 var debug_mode := false
 var _logs: Array[String] = []
@@ -45,44 +46,61 @@ func _init():
 	var exit_code := 0 if bool(result.get("ok", false)) else 1
 	_emit_and_quit(result, exit_code)
 
+
+var _op_modules: Array = []
+var _op_registry: Dictionary = {}
+var _op_registry_loaded := false
+
+func _ensure_op_registry() -> void:
+	if _op_registry_loaded:
+		return
+	_op_registry_loaded = true
+	_op_registry.clear()
+	_op_modules.clear()
+
+	var base_dir := get_script().resource_path.get_base_dir()
+	var module_paths := [
+		base_dir + "/godot_ops/batch_ops.gd",
+		base_dir + "/godot_ops/doctor_ops.gd",
+		base_dir + "/godot_ops/scene_ops.gd",
+		base_dir + "/godot_ops/file_ops.gd",
+		base_dir + "/godot_ops/resource_ops.gd",
+		base_dir + "/godot_ops/pixel_tileset_ops.gd",
+		base_dir + "/godot_ops/pixel_world_ops.gd",
+		base_dir + "/godot_ops/pixel_object_ops.gd",
+		base_dir + "/godot_ops/pixel_sprite_ops.gd",
+	]
+
+	for p in module_paths:
+		var script := load(p)
+		if script == null:
+			_log_error("Failed to load ops module: " + p)
+			continue
+		var inst = (script as GDScript).new(self)
+		if inst == null:
+			_log_error("Failed to instantiate ops module: " + p)
+			continue
+		_op_modules.append(inst)
+		if not inst.has_method("get_operations"):
+			_log_error("Ops module missing get_operations(): " + p)
+			continue
+		var ops: Dictionary = inst.get_operations()
+		for k in ops.keys():
+			var key := String(k)
+			if _op_registry.has(key):
+				_log_error("Duplicate operation registered: " + key)
+				continue
+			_op_registry[key] = ops[k]
+
 func _dispatch(operation: String, params: Dictionary) -> Dictionary:
-	match operation:
-		"batch":
-			return batch(params)
-		"get_godot_version":
-			return get_godot_version(params)
-		"create_scene":
-			return create_scene(params)
-		"add_node":
-			return add_node(params)
-		"load_sprite":
-			return load_sprite(params)
-		"export_mesh_library":
-			return export_mesh_library(params)
-		"save_scene":
-			return save_scene(params)
-		"get_uid":
-			return get_uid(params)
-		"resave_resources":
-			return resave_resources(params)
-		"set_node_properties":
-			return set_node_properties(params)
-		"connect_signal":
-			return connect_signal(params)
-		"attach_script":
-			return attach_script(params)
-		"create_script":
-			return create_script(params)
-		"read_text_file":
-			return read_text_file(params)
-		"write_text_file":
-			return write_text_file(params)
-		"create_resource":
-			return create_resource(params)
-		"validate_scene":
-			return validate_scene(params)
-		_:
-			return _err("Unknown operation", { "operation": operation })
+	_ensure_op_registry()
+	var fn = _op_registry.get(operation)
+	if fn == null:
+		return _err("Unknown operation", { "operation": operation })
+	var result = (fn as Callable).call(params)
+	if typeof(result) == TYPE_DICTIONARY:
+		return result
+	return _err("Operation returned non-dictionary", { "operation": operation, "result_type": typeof(result) })
 
 func _emit_and_quit(result: Dictionary, exit_code: int) -> void:
 	if not result.has("logs"):
@@ -123,6 +141,65 @@ func _num(v, fallback: float = 0.0) -> float:
 				return float(int(s))
 	return fallback
 
+func _looks_like_res_path(value: String) -> bool:
+	if value.begins_with("res://"):
+		return true
+	if value.find("/") != -1:
+		return true
+	if value.ends_with(".tres") or value.ends_with(".res") or value.ends_with(".tscn"):
+		return true
+	return false
+
+func _resource_from_json(d: Dictionary) -> Resource:
+	if not d.has(JSON_RESOURCE_KEY):
+		return null
+
+	var resource_id := String(d.get(JSON_RESOURCE_KEY, "")).strip_edges()
+	if resource_id.is_empty():
+		return null
+
+	var res: Resource = null
+	var created := false
+	var path_override := ""
+	if d.has("path"):
+		path_override = String(d.get("path", "")).strip_edges()
+	elif d.has("resource_path"):
+		path_override = String(d.get("resource_path", "")).strip_edges()
+
+	if not path_override.is_empty():
+		var res_path := _to_res_path(path_override)
+		if ResourceLoader.exists(res_path):
+			res = load(res_path)
+	elif _looks_like_res_path(resource_id):
+		var res_path_id := _to_res_path(resource_id)
+		if ResourceLoader.exists(res_path_id):
+			res = load(res_path_id)
+
+	if res == null and ClassDB.class_exists(resource_id) and ClassDB.can_instantiate(resource_id):
+		var inst = ClassDB.instantiate(resource_id)
+		if inst is Resource:
+			res = inst
+			created = true
+
+	if res == null:
+		return null
+
+	if d.has("props") and typeof(d.props) == TYPE_DICTIONARY:
+		var props: Dictionary = d.props
+		for key in props.keys():
+			var prop_name := String(key)
+			var expected := _prop_type(res as Resource, prop_name)
+			(res as Resource).set(prop_name, _json_to_variant_for_type(props[key], expected))
+
+	if created and not path_override.is_empty():
+		var save_path := _to_res_path(path_override)
+		if save_path != "" and not ResourceLoader.exists(save_path):
+			var save_err := ResourceSaver.save(res, save_path)
+			if save_err == OK:
+				res = load(save_path)
+
+	return res
+
 func _intlike(v: float) -> bool:
 	return abs(v - round(v)) <= 0.000001
 
@@ -135,6 +212,11 @@ func _json_to_variant(value):
 			return out
 		TYPE_DICTIONARY:
 			var d: Dictionary = value
+			if d.has(JSON_RESOURCE_KEY) and typeof(d.get(JSON_RESOURCE_KEY)) == TYPE_STRING:
+				var res = _resource_from_json(d)
+				if res != null:
+					return res
+				return null
 			if d.has(JSON_TYPE_KEY) and typeof(d.get(JSON_TYPE_KEY)) == TYPE_STRING:
 				var t := String(d.get(JSON_TYPE_KEY)).strip_edges()
 				match t:
@@ -292,7 +374,50 @@ func _json_to_variant_for_type(value, expected_type: int):
 				return Rect2i(int(_num(dri.get("x"))), int(_num(dri.get("y"))), int(_num(dri.get("w"))), int(_num(dri.get("h"))))
 		return _json_to_variant(value)
 
+	if expected_type == TYPE_NODE_PATH:
+		if typeof(value) == TYPE_NODE_PATH:
+			return value
+		if typeof(value) == TYPE_STRING_NAME or typeof(value) == TYPE_STRING:
+			return NodePath(String(value))
+		return _json_to_variant(value)
+
+	if expected_type == TYPE_STRING_NAME:
+		if typeof(value) == TYPE_STRING_NAME:
+			return value
+		if typeof(value) == TYPE_STRING:
+			return StringName(String(value))
+		return _json_to_variant(value)
+
 	return _json_to_variant(value)
+
+func _set_if_has(obj: Object, prop: String, value) -> bool:
+	if obj == null:
+		return false
+	var plist = obj.get_property_list()
+	for p in plist:
+		if typeof(p) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = p
+		if String(d.get("name", "")) == prop:
+			obj.set(prop, value)
+			return true
+	return false
+
+func _vec2i_from(value, fallback: Vector2i) -> Vector2i:
+	var v = _json_to_variant(value)
+	if typeof(v) == TYPE_VECTOR2I:
+		return v
+	if typeof(v) == TYPE_VECTOR2:
+		return Vector2i(int((v as Vector2).x), int((v as Vector2).y))
+	if typeof(v) == TYPE_ARRAY:
+		var a: Array = v
+		if a.size() >= 2:
+			return Vector2i(int(_num(a[0])), int(_num(a[1])))
+	if typeof(v) == TYPE_DICTIONARY:
+		var d: Dictionary = v
+		if d.has("x") and d.has("y"):
+			return Vector2i(int(_num(d.get("x"))), int(_num(d.get("y"))))
+	return fallback
 
 func _uid_text_from_value(value: Variant) -> String:
 	if typeof(value) == TYPE_STRING:
@@ -362,682 +487,26 @@ func _find_node(scene_root: Node, node_path: String) -> Node:
 
 	return scene_root.get_node_or_null(p)
 
+func _node_path_str(scene_root: Node, node: Node) -> String:
+	if scene_root == null or node == null:
+		return ""
+	if node == scene_root:
+		return "root"
+	return "root/" + str(scene_root.get_path_to(node))
+
+func _unique_child_name(parent: Node, desired: String) -> String:
+	var base := desired.strip_edges()
+	if base.is_empty():
+		base = "Node"
+	if parent.get_node_or_null(base) == null:
+		return base
+	var i := 2
+	while true:
+		var candidate := "%s_%d" % [base, i]
+		if parent.get_node_or_null(candidate) == null:
+			return candidate
+		i += 1
+	return base
+
 # -----------------------------------------------------------------------------
 # Operations (headless)
-
-func batch(params: Dictionary) -> Dictionary:
-	if not params.has("steps") or typeof(params.steps) != TYPE_ARRAY:
-		return _err("steps is required", { "received_type": typeof(params.get("steps")) })
-
-	var stop_on_error := bool(params.get("stop_on_error", true))
-	var steps: Array = params.steps
-	var results: Array = []
-	var failed_index := -1
-
-	for i in range(steps.size()):
-		var raw_step = steps[i]
-		if typeof(raw_step) != TYPE_DICTIONARY:
-			return _err("Each step must be an object", { "index": i })
-
-		var step: Dictionary = raw_step
-		var op := String(step.get("operation", "")).strip_edges()
-		if op.is_empty():
-			return _err("operation is required", { "index": i })
-
-		var step_params: Dictionary = {}
-		if step.has("params"):
-			if typeof(step.params) == TYPE_DICTIONARY:
-				step_params = step.params
-			elif typeof(step.params) == TYPE_STRING:
-				var json := JSON.new()
-				var parse_err := json.parse(String(step.params))
-				if parse_err != OK or typeof(json.get_data()) != TYPE_DICTIONARY:
-					return _err("Failed to parse step params", { "index": i, "operation": op })
-				step_params = json.get_data()
-			else:
-				return _err("params must be an object or JSON string", { "index": i, "operation": op })
-
-		var res: Dictionary = _dispatch(op, step_params)
-		results.append(res)
-
-		if not bool(res.get("ok", false)):
-			failed_index = i
-			if stop_on_error:
-				break
-
-	if failed_index == -1:
-		return _ok("Batch completed", { "results": results })
-
-	return _err(
-		"Batch failed at step " + str(failed_index),
-		{ "results": results, "failed_index": failed_index }
-	)
-
-func create_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var root_node_type := "Node2D"
-	if params.has("root_node_type"):
-		root_node_type = String(params.root_node_type)
-
-	var root = _instantiate_class(root_node_type)
-	if root == null or not (root is Node):
-		return _err("Failed to instantiate root node", { "root_node_type": root_node_type })
-
-	(root as Node).name = "root"
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var dir_err := _ensure_dir_for_res_path(scene_path)
-	if dir_err != OK:
-		return _err("Failed to create scene directory", { "error": dir_err, "dir": scene_path.get_base_dir() })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Scene created", { "scene_path": scene_path, "absolute_path": ProjectSettings.globalize_path(scene_path) })
-
-func add_node(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_type", "node_name"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var parent_path := "root"
-	if params.has("parent_node_path"):
-		parent_path = String(params.parent_node_path)
-
-	var parent := _find_node(scene_root, parent_path)
-	if parent == null:
-		return _err("Parent node not found", { "parent_node_path": parent_path })
-
-	var node_type := String(params.node_type)
-	var node_name := String(params.node_name)
-	var new_node = _instantiate_class(node_type)
-	if new_node == null or not (new_node is Node):
-		return _err("Failed to instantiate node", { "node_type": node_type })
-
-	(new_node as Node).name = node_name
-
-	if params.has("properties") and typeof(params.properties) == TYPE_DICTIONARY:
-		var props: Dictionary = params.properties
-		for key in props.keys():
-			var prop_name := String(key)
-			var expected := _prop_type(new_node as Node, prop_name)
-			(new_node as Node).set(prop_name, _json_to_variant_for_type(props[key], expected))
-
-	parent.add_child(new_node)
-	(new_node as Node).owner = scene_root
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(scene_root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Node added", { "scene_path": scene_path, "node_name": node_name, "node_type": node_type })
-
-func save_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var save_path := scene_path
-	if params.has("new_path"):
-		save_path = _to_res_path(String(params.new_path))
-
-	var scene_res := load(scene_path)
-	if scene_res == null:
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var dir_err := _ensure_dir_for_res_path(save_path)
-	if dir_err != OK:
-		return _err("Failed to create save directory", { "error": dir_err, "dir": save_path.get_base_dir() })
-
-	var save_err := ResourceSaver.save(scene_res, save_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "save_path": save_path })
-
-	return _ok("Scene saved", { "scene_path": scene_path, "save_path": save_path, "absolute_path": ProjectSettings.globalize_path(save_path) })
-
-func validate_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load PackedScene", { "scene_path": scene_path })
-
-	var inst := (scene_res as PackedScene).instantiate()
-	if inst == null:
-		return _err("Failed to instantiate PackedScene", { "scene_path": scene_path })
-
-	return _ok("Scene validated", { "scene_path": scene_path })
-
-func get_godot_version(params: Dictionary) -> Dictionary:
-	var info := Engine.get_version_info()
-	var ver := ""
-	if typeof(info) == TYPE_DICTIONARY and info.has("string"):
-		ver = String(info.get("string"))
-	if ver.is_empty():
-		ver = "%d.%d" % [int(info.get("major", 0)), int(info.get("minor", 0))]
-	return _ok("Godot version", { "version": ver, "version_info": info })
-
-func load_sprite(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_path", "texture_path"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var texture_path := _to_res_path(String(params.texture_path))
-
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var node := _find_node(scene_root, String(params.node_path))
-	if node == null:
-		return _err("Node not found", { "node_path": params.node_path })
-
-	var texture: Texture2D = null
-	var loader_path := "imported_load"
-	var svg_loader_available := false
-	var loaded := load(texture_path)
-	if loaded != null and loaded is Texture2D:
-		texture = loaded
-	else:
-		var image := Image.new()
-		var err := OK
-		var lower_path := texture_path.to_lower()
-		if lower_path.ends_with(".svg"):
-			var f := FileAccess.open(texture_path, FileAccess.READ)
-			if f == null:
-				return _err("Failed to open texture file", { "texture_path": texture_path, "error": FileAccess.get_open_error() })
-			var svg_text := f.get_as_text()
-			f.close()
-			svg_loader_available = image.has_method("load_svg_from_string") or image.has_method("load_svg_from_buffer")
-			if image.has_method("load_svg_from_string"):
-				loader_path = "svg_from_string"
-				err = image.load_svg_from_string(svg_text)
-			elif image.has_method("load_svg_from_buffer"):
-				loader_path = "svg_from_buffer"
-				err = image.load_svg_from_buffer(svg_text.to_utf8_buffer())
-			else:
-				loader_path = "svg_unavailable"
-				err = ERR_UNAVAILABLE
-		else:
-			loader_path = "image_load"
-			err = image.load(texture_path)
-		if err == OK:
-			texture = ImageTexture.create_from_image(image)
-		else:
-			if lower_path.ends_with(".svg"):
-				return _err(
-					"Failed to load texture",
-					{
-						"texture_path": texture_path,
-						"error": err,
-						"loader_path": loader_path,
-						"svg_loader_available": svg_loader_available,
-						"suggestions": [
-							"Prefer PNG textures for headless flows.",
-							"If you must use SVG, run an import step first or open the project once in the editor to trigger imports.",
-						],
-					}
-				)
-			return _err("Failed to load texture", { "texture_path": texture_path, "error": err, "loader_path": loader_path })
-	if texture == null:
-		return _err("Failed to load texture", { "texture_path": texture_path, "loader_path": loader_path })
-
-	if node is Sprite2D or node is Sprite3D or node is TextureRect:
-		node.texture = texture
-	else:
-		return _err("Node is not sprite-compatible", { "node_class": node.get_class() })
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(scene_root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Sprite loaded", { "scene_path": scene_path, "node_path": params.node_path, "texture_path": texture_path })
-
-func set_node_properties(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_path", "props"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	if typeof(params.props) != TYPE_DICTIONARY:
-		return _err("props must be an object/dictionary")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var node := _find_node(scene_root, String(params.node_path))
-	if node == null:
-		return _err("Node not found", { "node_path": params.node_path })
-
-	var props: Dictionary = params.props
-	var keys: Array[String] = []
-	for key in props.keys():
-		keys.append(String(key))
-		var prop_name := String(key)
-		var expected := _prop_type(node, prop_name)
-		node.set(prop_name, _json_to_variant_for_type(props[key], expected))
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(scene_root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Node properties set", { "scene_path": scene_path, "node_path": params.node_path, "properties": keys })
-
-func connect_signal(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "from_node_path", "signal", "to_node_path", "method"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var from_node := _find_node(scene_root, String(params.from_node_path))
-	var to_node := _find_node(scene_root, String(params.to_node_path))
-	if from_node == null:
-		return _err("from_node not found", { "from_node_path": params.from_node_path })
-	if to_node == null:
-		return _err("to_node not found", { "to_node_path": params.to_node_path })
-
-	var signal_name := StringName(String(params.signal))
-	var method_name := StringName(String(params.method))
-	var callable := Callable(to_node, method_name)
-
-	if from_node.is_connected(signal_name, callable):
-		return _ok("Signal already connected", { "scene_path": scene_path })
-
-	var err := from_node.connect(signal_name, callable, Object.CONNECT_PERSIST)
-	if err != OK:
-		return _err("Failed to connect signal", { "error": err, "signal": String(params.signal) })
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(scene_root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Signal connected", { "scene_path": scene_path, "signal": String(params.signal) })
-
-func attach_script(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_path", "script_path"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var script_path := _to_res_path(String(params.script_path))
-
-	var script_res := load(script_path)
-	if script_res == null or not (script_res is Script):
-		return _err("Failed to load script", { "script_path": script_path })
-
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var node := _find_node(scene_root, String(params.node_path))
-	if node == null:
-		return _err("Node not found", { "node_path": params.node_path })
-
-	node.set_script(script_res)
-
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(scene_root)
-	if pack_err != OK:
-		return _err("Failed to pack scene", { "error": pack_err })
-
-	var save_err := ResourceSaver.save(packed, scene_path)
-	if save_err != OK:
-		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
-
-	return _ok("Script attached", { "scene_path": scene_path, "node_path": params.node_path, "script_path": script_path })
-
-func create_script(params: Dictionary) -> Dictionary:
-	if not params.has("script_path"):
-		return _err("script_path is required")
-
-	var script_path := _to_res_path(String(params.script_path))
-	var template := String(params.get("template", "minimal"))
-	var extends_name := String(params.get("extends", "Node"))
-	var global_class_name := String(params.get("class_name", ""))
-
-	var lines: Array[String] = []
-	if template == "tool":
-		lines.append("@tool")
-	lines.append("extends " + extends_name)
-	lines.append("")
-	if not global_class_name.is_empty():
-		lines.append("class_name " + global_class_name)
-		lines.append("")
-	lines.append("func _ready() -> void:")
-	lines.append("\tpass")
-	lines.append("")
-
-	var dir_err := _ensure_dir_for_res_path(script_path)
-	if dir_err != OK:
-		return _err("Failed to create script directory", { "error": dir_err, "dir": script_path.get_base_dir() })
-
-	var f := FileAccess.open(script_path, FileAccess.WRITE)
-	if f == null:
-		return _err("Failed to open script for writing", { "error": FileAccess.get_open_error(), "script_path": script_path })
-	f.store_string("\n".join(lines))
-	f.close()
-
-	return _ok("Script created", { "script_path": script_path, "absolute_path": ProjectSettings.globalize_path(script_path) })
-
-func read_text_file(params: Dictionary) -> Dictionary:
-	if not params.has("path"):
-		return _err("path is required")
-
-	var file_path := _to_res_path(String(params.path))
-	var f := FileAccess.open(file_path, FileAccess.READ)
-	if f == null:
-		return _err("Failed to open file for reading", { "error": FileAccess.get_open_error(), "path": file_path })
-	var content := f.get_as_text()
-	f.close()
-
-	return _ok("File read", { "path": file_path, "content": content })
-
-func write_text_file(params: Dictionary) -> Dictionary:
-	for k in ["path", "content"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var file_path := _to_res_path(String(params.path))
-	var content := String(params.content)
-
-	var dir_err := _ensure_dir_for_res_path(file_path)
-	if dir_err != OK:
-		return _err("Failed to create directory", { "error": dir_err, "dir": file_path.get_base_dir() })
-
-	var f := FileAccess.open(file_path, FileAccess.WRITE)
-	if f == null:
-		return _err("Failed to open file for writing", { "error": FileAccess.get_open_error(), "path": file_path })
-	f.store_string(content)
-	f.close()
-
-	return _ok("File written", { "path": file_path, "bytes": content.to_utf8_buffer().size() })
-
-func create_resource(params: Dictionary) -> Dictionary:
-	for k in ["resource_path", "type"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var resource_path := _to_res_path(String(params.resource_path))
-	var type_name := String(params.type)
-
-	var res = _instantiate_class(type_name)
-	if res == null or not (res is Resource):
-		return _err("Failed to instantiate Resource", { "type": type_name })
-
-	if params.has("props") and typeof(params.props) == TYPE_DICTIONARY:
-		var props: Dictionary = params.props
-		for key in props.keys():
-			var prop_name := String(key)
-			var expected := _prop_type(res as Resource, prop_name)
-			(res as Resource).set(prop_name, _json_to_variant_for_type(props[key], expected))
-
-	var dir_err := _ensure_dir_for_res_path(resource_path)
-	if dir_err != OK:
-		return _err("Failed to create resource directory", { "error": dir_err, "dir": resource_path.get_base_dir() })
-
-	var save_err := ResourceSaver.save(res, resource_path)
-	if save_err != OK:
-		return _err("Failed to save resource", { "error": save_err, "resource_path": resource_path })
-
-	return _ok("Resource created", { "resource_path": resource_path, "type": type_name, "absolute_path": ProjectSettings.globalize_path(resource_path) })
-
-func export_mesh_library(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "output_path"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	var scene_path := _to_res_path(String(params.scene_path))
-	var output_path := _to_res_path(String(params.output_path))
-
-	var scene_res := load(scene_path)
-	if scene_res == null or not (scene_res is PackedScene):
-		return _err("Failed to load scene", { "scene_path": scene_path })
-
-	var scene_root := (scene_res as PackedScene).instantiate()
-	if scene_root == null:
-		return _err("Failed to instantiate scene", { "scene_path": scene_path })
-
-	var mesh_item_names: Array = []
-	if params.has("mesh_item_names") and typeof(params.mesh_item_names) == TYPE_ARRAY:
-		mesh_item_names = params.mesh_item_names
-	var use_specific := mesh_item_names.size() > 0
-
-	var mesh_library := MeshLibrary.new()
-	var item_id := 0
-
-	for child in scene_root.get_children():
-		if use_specific and not mesh_item_names.has(child.name):
-			continue
-
-		var mesh_instance: MeshInstance3D = null
-		if child is MeshInstance3D:
-			mesh_instance = child
-		else:
-			for descendant in child.get_children():
-				if descendant is MeshInstance3D:
-					mesh_instance = descendant
-					break
-
-		if mesh_instance == null or mesh_instance.mesh == null:
-			continue
-
-		mesh_library.create_item(item_id)
-		mesh_library.set_item_name(item_id, child.name)
-		mesh_library.set_item_mesh(item_id, mesh_instance.mesh)
-
-		var shapes: Array = []
-		for collision_child in child.get_children():
-			if collision_child is CollisionShape3D and collision_child.shape:
-				shapes.append(collision_child.shape)
-		if shapes.size() > 0:
-			mesh_library.set_item_shapes(item_id, shapes)
-
-		item_id += 1
-
-	if item_id == 0:
-		return _err("No valid meshes found in scene", { "scene_path": scene_path })
-
-	var dir_err := _ensure_dir_for_res_path(output_path)
-	if dir_err != OK:
-		return _err("Failed to create output directory", { "error": dir_err, "dir": output_path.get_base_dir() })
-
-	var save_err := ResourceSaver.save(mesh_library, output_path)
-	if save_err != OK:
-		return _err("Failed to save MeshLibrary", { "error": save_err, "output_path": output_path })
-
-	return _ok("MeshLibrary exported", { "output_path": output_path, "items": item_id, "absolute_path": ProjectSettings.globalize_path(output_path) })
-
-func get_uid(params: Dictionary) -> Dictionary:
-	if not params.has("file_path"):
-		return _err("file_path is required")
-
-	var file_path := _to_res_path(String(params.file_path))
-	if not FileAccess.file_exists(file_path):
-		return _err("File does not exist", { "file_path": file_path })
-
-	var uid_path := file_path + ".uid"
-	if not FileAccess.file_exists(uid_path):
-		if ClassDB.class_exists("ResourceUID"):
-			var uid_text := _uid_text_from_value(ResourceUID.path_to_uid(file_path))
-			if uid_text.is_empty():
-				uid_text = _uid_text_from_value(ResourceUID.create_id_for_path(file_path))
-			if uid_text.is_empty():
-				uid_text = _uid_text_from_value(ResourceUID.create_id())
-			if not uid_text.is_empty():
-				var fgen := FileAccess.open(uid_path, FileAccess.WRITE)
-				if fgen != null:
-					fgen.store_string(uid_text)
-					fgen.close()
-				return _ok("UID read", { "file_path": file_path, "uid": uid_text, "generated": true })
-		return _err("UID file does not exist", { "file_path": file_path, "uid_path": uid_path })
-
-	var f := FileAccess.open(uid_path, FileAccess.READ)
-	if f == null:
-		return _err("Failed to open UID file", { "error": FileAccess.get_open_error(), "uid_path": uid_path })
-
-	var uid_content := f.get_as_text().strip_edges()
-	f.close()
-
-	return _ok("UID read", { "file_path": file_path, "uid": uid_content })
-
-func _find_files(base_path: String, extension: String) -> Array[String]:
-	var files: Array[String] = []
-	var dir := DirAccess.open(base_path)
-	if dir == null:
-		return files
-
-	dir.list_dir_begin()
-	var name := dir.get_next()
-	while name != "":
-		if dir.current_is_dir():
-			if not name.begins_with("."):
-				files.append_array(_find_files(base_path + name + "/", extension))
-		else:
-			if name.ends_with(extension):
-				files.append(base_path + name)
-		name = dir.get_next()
-	dir.list_dir_end()
-
-	return files
-
-func resave_resources(params: Dictionary) -> Dictionary:
-	var base := "res://"
-	if params.has("project_path"):
-		var p := String(params.project_path)
-		if p.begins_with("res://"):
-			base = p
-	if not base.ends_with("/"):
-		base += "/"
-
-	var scenes := _find_files(base, ".tscn")
-	var resources: Array[String] = []
-	resources.append_array(_find_files(base, ".tres"))
-	resources.append_array(_find_files(base, ".res"))
-	resources.append_array(_find_files(base, ".gd"))
-	resources.append_array(_find_files(base, ".gdshader"))
-
-	var scenes_saved := 0
-	var scenes_errors := 0
-	for s in scenes:
-		var r := load(s)
-		if r == null:
-			scenes_errors += 1
-			continue
-		var err := ResourceSaver.save(r, s)
-		if err == OK:
-			scenes_saved += 1
-		else:
-			scenes_errors += 1
-
-	var uid_missing := 0
-	var uid_generated := 0
-	var uid_errors := 0
-
-	for rp in resources:
-		var uid_path := rp + ".uid"
-		if FileAccess.file_exists(uid_path):
-			continue
-		uid_missing += 1
-		var r := load(rp)
-		if r == null:
-			uid_errors += 1
-			continue
-		var err := ResourceSaver.save(r, rp)
-		if err == OK and FileAccess.file_exists(uid_path):
-			uid_generated += 1
-		elif err == OK:
-			var created := false
-			if ClassDB.class_exists("ResourceUID"):
-				var uid_text := _uid_text_from_value(ResourceUID.path_to_uid(rp))
-				if uid_text.is_empty():
-					uid_text = _uid_text_from_value(ResourceUID.create_id_for_path(rp))
-				if uid_text.is_empty():
-					uid_text = _uid_text_from_value(ResourceUID.create_id())
-				if not uid_text.is_empty():
-					var f := FileAccess.open(uid_path, FileAccess.WRITE)
-					if f != null:
-						f.store_string(uid_text)
-						f.close()
-						created = true
-			if created:
-				uid_generated += 1
-			else:
-				uid_errors += 1
-		else:
-			uid_errors += 1
-
-	var ok := (scenes_errors == 0 and uid_errors == 0)
-	return {
-		"ok": ok,
-		"summary": "Resave complete",
-		"details": {
-			"base": base,
-			"scenes_found": scenes.size(),
-			"scenes_saved": scenes_saved,
-			"scenes_errors": scenes_errors,
-			"uid_missing": uid_missing,
-			"uid_generated": uid_generated,
-			"uid_errors": uid_errors,
-		},
-	}

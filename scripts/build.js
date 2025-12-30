@@ -20,6 +20,13 @@ try {
     path.join(__dirname, '..', 'build', 'scripts', 'godot_operations.gd'),
   );
 
+  // Copy modularized godot_ops modules (required by godot_operations.gd)
+  fs.copySync(
+    path.join(__dirname, '..', 'src', 'scripts', 'godot_ops'),
+    path.join(__dirname, '..', 'build', 'scripts', 'godot_ops'),
+    { overwrite: true },
+  );
+
   console.log('Successfully copied godot_operations.gd to build/scripts');
 } catch (error) {
   console.error('Error copying scripts:', error);

@@ -3,6 +3,7 @@ import net from 'node:net';
 import test from 'node:test';
 
 import { EditorBridgeClient } from '../build/editor_bridge_client.js';
+import { PACKAGE_VERSION } from '../build/version.js';
 
 function startFakeBridge({
   expectedToken = 'test-token',
@@ -58,7 +59,7 @@ function startFakeBridge({
               type: 'hello_ok',
               capabilities: {
                 protocol: 'tcp-jsonl-1',
-                plugin_version: '0.2.0',
+                plugin_version: PACKAGE_VERSION,
               },
             });
           }

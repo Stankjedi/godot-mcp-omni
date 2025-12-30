@@ -27,8 +27,8 @@ Examples of gated operations:
 
 Implementation:
 
-- Headless ops: `src/security.ts` (`assertDangerousOpsAllowed`) wired in `src/server.ts`
-- Editor RPC: `src/security.ts` (`assertEditorRpcAllowed`) wired in `src/server.ts` (`handleGodotRpc`)
+- Headless ops: `src/security.ts` (`assertDangerousOpsAllowed`), enforced by tool handlers like `src/tools/headless.ts` before running operations.
+- Editor RPC: `src/security.ts` (`assertEditorRpcAllowed`), enforced by editor-related tool handlers (for example `src/tools/editor.ts` and `src/tools/unified/*`) before making editor bridge RPC calls.
 
 ## Audit Log
 

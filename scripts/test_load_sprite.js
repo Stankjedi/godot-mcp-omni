@@ -4,24 +4,18 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs/promises';
-import { spawn } from 'child_process';
-import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
+
+import {
+  formatError,
+  resolveGodotPath,
+  spawnMcpServer,
+  wait,
+} from './mcp_test_harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverEntry = path.join(repoRoot, 'build', 'index.js');
-
-function requireGodotPath() {
-  const godotPath = process.env.GODOT_PATH?.trim();
-  if (!godotPath) {
-    throw new Error(
-      'GODOT_PATH is required.\n' +
-        'Example: GODOT_PATH=/abs/path/to/godot npm run verify:sprite',
-    );
-  }
-  return godotPath;
-}
 
 async function ensureMinimalProject(projectPath) {
   const projectGodotPath = path.join(projectPath, 'project.godot');
@@ -56,7 +50,9 @@ async function main() {
     );
   }
 
-  const GODOT_PATH = requireGodotPath();
+  const GODOT_PATH = await resolveGodotPath({
+    exampleCommand: 'GODOT_PATH=/abs/path/to/godot npm run verify:sprite',
+  });
 
   const projectPath =
     process.env.VERIFY_PROJECT_PATH ??
@@ -72,30 +68,23 @@ async function main() {
   await fs.writeFile(path.join(projectPath, 'test_texture.png'), pngBytes);
   console.log('Created test_texture.png (1x1 pixel)');
 
-  const server = spawn(process.execPath, [serverEntry], {
+  const { client, shutdown } = spawnMcpServer({
+    serverEntry,
     env: {
-      ...process.env,
       GODOT_PATH,
       ALLOW_DANGEROUS_OPS: 'true',
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
   });
 
-  const client = new JsonRpcProcessClient(server);
-
   try {
-    await new Promise((r) => setTimeout(r, 500));
+    await wait(500);
 
     // Step 1: Import project assets first
     console.log('Step 1: Importing project assets...');
     try {
-      const importResult = await client.callToolOrThrow(
-        'godot_import_project_assets',
-        {
-          projectPath,
-        },
-      );
+      await client.callToolOrThrow('godot_import_project_assets', {
+        projectPath,
+      });
       console.log('  ✅ Import completed');
     } catch (e) {
       console.log(
@@ -137,17 +126,21 @@ async function main() {
 
     console.log('\n=== ALL TESTS PASSED ✅ ===');
   } catch (error) {
-    console.log('\n  ❌ Test failed:', error.message);
+    console.log('\n  ❌ Test failed:', formatError(error));
 
     // Show the actual error
-    if (error.message.includes('Details:')) {
+    if (formatError(error).includes('Details:')) {
       console.log('  (This is expected for headless mode without import)');
       console.log('  README note: "Headless에서 PNG 권장, SVG는 임포트 필요"');
     }
+
+    process.exitCode = 1;
   } finally {
-    client.dispose();
-    server.kill();
+    await shutdown();
   }
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(formatError(err));
+  process.exit(1);
+});

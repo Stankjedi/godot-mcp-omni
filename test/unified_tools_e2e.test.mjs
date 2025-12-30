@@ -1,47 +1,19 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import { normalizeGodotArgsForHost } from '../build/godot_cli.js';
 import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
-
-function isWindowsExePath(p) {
-  return typeof p === 'string' && p.toLowerCase().endsWith('.exe');
-}
-
-function mkdtemp(prefix) {
-  const godotPath = process.env.GODOT_PATH ?? '';
-  const needsWslWinPathTranslation =
-    process.platform !== 'win32' && isWindowsExePath(godotPath);
-  const base = needsWslWinPathTranslation
-    ? path.join(process.cwd(), '.tmp')
-    : os.tmpdir();
-  fs.mkdirSync(base, { recursive: true });
-  return fs.mkdtempSync(path.join(base, prefix));
-}
-
-function writeMinimalProject(projectPath, name) {
-  const projectGodot = [
-    '; Engine configuration file.',
-    "; It's best edited using the editor, not directly.",
-    'config_version=5',
-    '',
-    '[application]',
-    `config/name="${name}"`,
-    '',
-  ].join('\n');
-
-  fs.writeFileSync(
-    path.join(projectPath, 'project.godot'),
-    projectGodot,
-    'utf8',
-  );
-}
+import {
+  isWindowsExePath,
+  mkdtemp,
+  startServer,
+  waitForServerStartup,
+  writeMinimalProject,
+} from './helpers.mjs';
 
 function writeMinimalScenes(projectPath) {
   const mainTscn = [
@@ -107,24 +79,6 @@ function writeTinyPng(projectPath) {
     'base64',
   );
   fs.writeFileSync(path.join(projectPath, 'icon.png'), pngBytes);
-}
-
-function startServer(env = {}) {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const serverEntry = path.join(__dirname, '..', 'build', 'index.js');
-  return spawn(process.execPath, [serverEntry], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    env: {
-      ...process.env,
-      ...env,
-    },
-  });
-}
-
-async function waitForServerStartup() {
-  await new Promise((r) => setTimeout(r, 300));
 }
 
 function readWslGatewayIp() {
@@ -197,7 +151,11 @@ function spawnGodotEditor(godotPath, projectPath, env) {
 }
 
 function spawnGodotEditorGui(godotPath, projectPath, env) {
-  const args = normalizeGodotArgsForHost(godotPath, ['-e', '--path', projectPath]);
+  const args = normalizeGodotArgsForHost(godotPath, [
+    '-e',
+    '--path',
+    projectPath,
+  ]);
   return spawn(godotPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -244,7 +202,8 @@ async function rmRecursiveWithRetry(targetPath, attempts = 8) {
 }
 
 function getToolNames(listResult) {
-  const tools = listResult && typeof listResult === 'object' ? listResult.tools : undefined;
+  const tools =
+    listResult && typeof listResult === 'object' ? listResult.tools : undefined;
   if (!Array.isArray(tools)) return [];
   return tools
     .map((t) => (t && typeof t === 'object' ? t.name : undefined))
@@ -317,20 +276,35 @@ test(
       });
 
       // Prefer file-based config for WSL -> Windows Godot interop.
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_token'), token, 'utf8');
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_port'), String(port), 'utf8');
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_host'), '0.0.0.0', 'utf8');
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_token'),
+        token,
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_port'),
+        String(port),
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_host'),
+        '0.0.0.0',
+        'utf8',
+      );
 
       // Headless fallback checks (no editor connection).
-      const headlessCreate = await client.callToolOrThrow('godot_scene_manager', {
-        action: 'create',
-        projectPath,
-        scenePath: 'Headless.tscn',
-        parentNodePath: 'root',
-        nodeType: 'Node2D',
-        nodeName: 'HeadlessNode',
-        props: { position: { $type: 'Vector2', x: 1, y: 2 } },
-      });
+      const headlessCreate = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'create',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          parentNodePath: 'root',
+          nodeType: 'Node2D',
+          nodeName: 'HeadlessNode',
+          props: { position: { $type: 'Vector2', x: 1, y: 2 } },
+        },
+      );
       assert.equal(headlessCreate.ok, true);
 
       const headlessConnectSignal = await client.callToolOrThrow(
@@ -347,14 +321,116 @@ test(
       );
       assert.equal(headlessConnectSignal.ok, true);
 
-      const headlessLoadTexture = await client.callToolOrThrow('godot_asset_manager', {
-        action: 'load_texture',
-        projectPath,
-        scenePath: 'SpriteScene.tscn',
-        nodePath: 'root/Sprite',
-        texturePath: 'res://icon.png',
-      });
+      const headlessLoadTexture = await client.callToolOrThrow(
+        'godot_asset_manager',
+        {
+          action: 'load_texture',
+          projectPath,
+          scenePath: 'SpriteScene.tscn',
+          nodePath: 'root/Sprite',
+          texturePath: 'res://icon.png',
+        },
+      );
       assert.equal(headlessLoadTexture.ok, true);
+
+      const headlessAutoAttach = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'create',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          parentNodePath: 'root',
+          nodeType: 'CharacterBody2D',
+          nodeName: 'AutoBody2D',
+          autoAttach: true,
+          primitive: 'capsule',
+          sprite: 'res://icon.png',
+          collisionLayerBits: [true, false, true],
+          collisionMask: 3,
+        },
+      );
+      assert.equal(headlessAutoAttach.ok, true);
+
+      const headlessUpdate = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'update',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          nodePath: 'root/AutoBody2D',
+          props: { position: { $type: 'Vector2', x: 5, y: 6 } },
+          collisionMaskBits: [true, true],
+        },
+      );
+      assert.equal(headlessUpdate.ok, true);
+
+      const headlessAttachScript = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'attach_script',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          nodePath: 'root/AutoBody2D',
+          scriptPath: 'res://TestScript.gd',
+        },
+      );
+      assert.equal(headlessAttachScript.ok, true);
+
+      const headlessAttachComponents = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'attach_components',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          nodePath: 'root/AutoBody2D',
+          components: [{ nodeType: 'Node2D', nodeName: 'AutoChild' }],
+        },
+      );
+      assert.equal(headlessAttachComponents.ok, true);
+
+      const headlessTilemap = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'create_tilemap',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          nodeName: 'HeadlessTilemap',
+          tileSetTexturePath: 'res://icon.png',
+          tileSize: { x: 1, y: 1 },
+          cells: [{ x: 0, y: 0, atlasX: 0, atlasY: 0 }],
+        },
+      );
+      assert.equal(headlessTilemap.ok, true);
+
+      const headlessUI = await client.callToolOrThrow('godot_scene_manager', {
+        action: 'create_ui',
+        projectPath,
+        scenePath: 'Headless.tscn',
+        uiRootName: 'HeadlessUI',
+        elements: [
+          {
+            nodeType: 'Label',
+            nodeName: 'Title',
+            props: { text: 'Hello' },
+            layout: 'top',
+          },
+        ],
+      });
+      assert.equal(headlessUI.ok, true);
+
+      const headlessBatch = await client.callToolOrThrow(
+        'godot_scene_manager',
+        {
+          action: 'batch_create',
+          projectPath,
+          scenePath: 'Headless.tscn',
+          items: [
+            { nodeType: 'Node2D', nodeName: 'BatchA' },
+            { nodeType: 'Node2D', nodeName: 'BatchB' },
+          ],
+        },
+      );
+      assert.equal(headlessBatch.ok, true);
 
       // Start a headless editor and connect the bridge.
       godotProc = spawnGodotEditor(godotPath, projectPath, {
@@ -372,19 +448,31 @@ test(
       const portReady = await waitForPortOpen(connectHost, port, 60000);
       assert.equal(portReady, true, 'Editor bridge did not open the TCP port');
 
-      const connectResp = await client.callToolOrThrow('godot_workspace_manager', {
-        action: 'connect',
-        projectPath,
-        host: connectHost,
-        port,
-        token,
-        timeoutMs: 60000,
-      });
+      const connectResp = await client.callToolOrThrow(
+        'godot_workspace_manager',
+        {
+          action: 'connect',
+          projectPath,
+          host: connectHost,
+          port,
+          token,
+          timeoutMs: 60000,
+        },
+      );
       assert.equal(connectResp.ok, true);
 
       await client.callToolOrThrow('godot_workspace_manager', {
         action: 'open_scene',
         scenePath: 'res://Main.tscn',
+      });
+
+      await client.callToolOrThrow('godot_asset_manager', {
+        action: 'scan',
+      });
+
+      await client.callToolOrThrow('godot_asset_manager', {
+        action: 'auto_import_check',
+        files: ['res://icon.png'],
       });
 
       // Scene manager: create/duplicate/reparent/instance/remove + undo/redo.
@@ -394,6 +482,76 @@ test(
         nodeType: 'Node2D',
         nodeName: 'UniNode',
         props: { position: { $type: 'Vector2', x: 3, y: 4 } },
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
+        parentNodePath: 'root',
+        nodeType: 'CharacterBody2D',
+        nodeName: 'Player2D',
+        autoAttach: true,
+        primitive: 'circle',
+        sprite: 'res://icon.png',
+        collisionLayerBits: [true, false, true],
+        collisionMaskBits: [true],
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'update',
+        nodePath: 'Player2D',
+        collisionMask: 3,
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'attach_script',
+        nodePath: 'Player2D',
+        scriptPath: 'res://TestScript.gd',
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'attach_components',
+        nodePath: 'Player2D',
+        components: [{ nodeType: 'Node2D', nodeName: 'PlayerTag' }],
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'create_tilemap',
+        nodeName: 'EditorTilemap',
+        tileSetTexturePath: 'res://icon.png',
+        tileSize: { x: 1, y: 1 },
+        cells: [{ x: 0, y: 0, atlasX: 0, atlasY: 0 }],
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'create_ui',
+        uiRootName: 'EditorUI',
+        elements: [
+          {
+            nodeType: 'Label',
+            nodeName: 'HudLabel',
+            props: { text: 'HUD' },
+            layout: 'top',
+          },
+        ],
+        timeoutMs: 30000,
+      });
+
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'batch_create',
+        items: [
+          { nodeType: 'Node2D', nodeName: 'BatchNode1' },
+          {
+            nodeType: 'Node2D',
+            nodeName: 'BatchNode2',
+            props: { position: { $type: 'Vector2', x: 10, y: 20 } },
+          },
+        ],
         timeoutMs: 30000,
       });
 
@@ -446,54 +604,69 @@ test(
         timeoutMs: 30000,
       });
 
-      const afterRemove = await client.callToolOrThrow('godot_inspector_manager', {
-        action: 'query',
-        name: 'UniNodeCopy',
-        includeRoot: true,
-        limit: 10,
-        timeoutMs: 30000,
-      });
+      const afterRemove = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'query',
+          name: 'UniNodeCopy',
+          includeRoot: true,
+          limit: 10,
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(afterRemove.details?.result?.count, 0);
 
       await client.callToolOrThrow('godot_scene_manager', {
         action: 'undo',
         timeoutMs: 30000,
       });
-      const afterUndo = await client.callToolOrThrow('godot_inspector_manager', {
-        action: 'query',
-        name: 'UniNodeCopy',
-        includeRoot: true,
-        limit: 10,
-        timeoutMs: 30000,
-      });
+      const afterUndo = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'query',
+          name: 'UniNodeCopy',
+          includeRoot: true,
+          limit: 10,
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(afterUndo.details?.result?.count, 1);
 
       await client.callToolOrThrow('godot_scene_manager', {
         action: 'redo',
         timeoutMs: 30000,
       });
-      const afterRedo = await client.callToolOrThrow('godot_inspector_manager', {
-        action: 'query',
-        name: 'UniNodeCopy',
-        includeRoot: true,
-        limit: 10,
-        timeoutMs: 30000,
-      });
+      const afterRedo = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'query',
+          name: 'UniNodeCopy',
+          includeRoot: true,
+          limit: 10,
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(afterRedo.details?.result?.count, 0);
 
       // Inspector manager: inspect/select/property_list + connect/disconnect signal.
-      const inspectParent = await client.callToolOrThrow('godot_inspector_manager', {
-        action: 'inspect',
-        nodePath: 'Parent',
-        timeoutMs: 30000,
-      });
+      const inspectParent = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'inspect',
+          nodePath: 'Parent',
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(inspectParent.details?.result?.name, 'Parent');
 
-      const propertyList = await client.callToolOrThrow('godot_inspector_manager', {
-        action: 'property_list',
-        className: 'Node2D',
-        timeoutMs: 30000,
-      });
+      const propertyList = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'property_list',
+          className: 'Node2D',
+          timeoutMs: 30000,
+        },
+      );
       assert.ok(Array.isArray(propertyList.details?.properties));
 
       await client.callToolOrThrow('godot_inspector_manager', {
@@ -668,9 +841,21 @@ test(
         enablePlugin: true,
       });
 
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_token'), token, 'utf8');
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_port'), String(port), 'utf8');
-      fs.writeFileSync(path.join(projectPath, '.godot_mcp_host'), '0.0.0.0', 'utf8');
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_token'),
+        token,
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_port'),
+        String(port),
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(projectPath, '.godot_mcp_host'),
+        '0.0.0.0',
+        'utf8',
+      );
 
       godotProc = spawnGodotEditorGui(godotPath, projectPath, {
         GODOT_MCP_TOKEN: token,
@@ -695,15 +880,19 @@ test(
         scenePath: 'res://Main.tscn',
       });
 
-      const capture = await client.callToolOrThrow('godot_editor_view_manager', {
-        action: 'capture_viewport',
-        maxSize: 256,
-        timeoutMs: 60000,
-      });
+      const capture = await client.callToolOrThrow(
+        'godot_editor_view_manager',
+        {
+          action: 'capture_viewport',
+          maxSize: 256,
+          timeoutMs: 60000,
+        },
+      );
       const captureResult = capture.details?.result;
       assert.equal(captureResult?.content_type, 'image/png');
       assert.ok(
-        typeof captureResult?.base64 === 'string' && captureResult.base64.length > 100,
+        typeof captureResult?.base64 === 'string' &&
+          captureResult.base64.length > 100,
       );
     } finally {
       client.dispose();

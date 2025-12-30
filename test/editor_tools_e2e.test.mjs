@@ -1,47 +1,19 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import { normalizeGodotArgsForHost } from '../build/godot_cli.js';
 import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
-
-function isWindowsExePath(p) {
-  return typeof p === 'string' && p.toLowerCase().endsWith('.exe');
-}
-
-function mkdtemp(prefix) {
-  const godotPath = process.env.GODOT_PATH ?? '';
-  const needsWslWinPathTranslation =
-    process.platform !== 'win32' && isWindowsExePath(godotPath);
-  const base = needsWslWinPathTranslation
-    ? path.join(process.cwd(), '.tmp')
-    : os.tmpdir();
-  fs.mkdirSync(base, { recursive: true });
-  return fs.mkdtempSync(path.join(base, prefix));
-}
-
-function writeMinimalProject(projectPath, name) {
-  const projectGodot = [
-    '; Engine configuration file.',
-    "; It's best edited using the editor, not directly.",
-    'config_version=5',
-    '',
-    '[application]',
-    `config/name="${name}"`,
-    '',
-  ].join('\n');
-
-  fs.writeFileSync(
-    path.join(projectPath, 'project.godot'),
-    projectGodot,
-    'utf8',
-  );
-}
+import {
+  isWindowsExePath,
+  mkdtemp,
+  startServer,
+  waitForServerStartup,
+  writeMinimalProject,
+} from './helpers.mjs';
 
 function writeMinimalScenes(projectPath) {
   const mainTscn = [
@@ -63,25 +35,6 @@ function writeMinimalScenes(projectPath) {
     subSceneTscn,
     'utf8',
   );
-}
-
-function startServer(env = {}) {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const serverEntry = path.join(__dirname, '..', 'build', 'index.js');
-  const child = spawn(process.execPath, [serverEntry], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-    env: {
-      ...process.env,
-      ...env,
-    },
-  });
-  return child;
-}
-
-async function waitForServerStartup() {
-  await new Promise((r) => setTimeout(r, 300));
 }
 
 function readWslGatewayIp() {

@@ -112,7 +112,10 @@ export function asOptionalPositiveNumber(
   return asPositiveNumber(value, fieldName);
 }
 
-export function asNonNegativeInteger(value: unknown, fieldName: string): number {
+export function asNonNegativeInteger(
+  value: unknown,
+  fieldName: string,
+): number {
   const n = asNumber(value, fieldName);
   if (!Number.isSafeInteger(n) || !Number.isInteger(n) || n < 0) {
     throw new ValidationError(

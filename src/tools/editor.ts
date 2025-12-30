@@ -552,7 +552,7 @@ export function createEditorToolHandlers(
     godot_inspect: async (args: unknown): Promise<ToolResponse> => {
       const connected = requireConnected();
       if ('ok' in connected) return connected;
-      const { client, projectPath } = connected;
+      const { client, projectPath: _projectPath } = connected;
 
       const argsObj = asRecord(args, 'args');
       const query = asRecord(parseJsonish(argsObj.query_json), 'query_json');
@@ -996,6 +996,11 @@ export function createEditorToolHandlers(
           : 'root';
       const name = asOptionalString(argsObj.name, 'name')?.trim();
       const props = asOptionalRecord(argsObj.props, 'props');
+      const ensureUniqueName = asOptionalBoolean(
+        (argsObj as Record<string, unknown>).ensureUniqueName ??
+          (argsObj as Record<string, unknown>).ensure_unique_name,
+        'ensureUniqueName',
+      );
       const timeoutMs =
         asOptionalPositiveNumber(argsObj.timeoutMs, 'timeoutMs') ?? 10000;
 
@@ -1005,6 +1010,8 @@ export function createEditorToolHandlers(
       };
       if (name) rpcParams.name = name;
       if (props) rpcParams.props = props;
+      if (ensureUniqueName !== undefined)
+        rpcParams.ensure_unique_name = ensureUniqueName;
 
       try {
         assertEditorRpcAllowed('instance_scene', rpcParams, projectPath);

@@ -5,24 +5,19 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs/promises';
-import { spawn } from 'child_process';
-import { JsonRpcProcessClient } from '../build/utils/jsonrpc_process_client.js';
+
+import {
+  createStepRunner,
+  formatError,
+  resolveGodotPath,
+  spawnMcpServer,
+  wait,
+} from './mcp_test_harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const serverEntry = path.join(repoRoot, 'build', 'index.js');
-
-function requireGodotPath() {
-  const godotPath = process.env.GODOT_PATH?.trim();
-  if (!godotPath) {
-    throw new Error(
-      'GODOT_PATH is required.\n' +
-        'Example: GODOT_PATH=/abs/path/to/godot npm run verify:readme',
-    );
-  }
-  return godotPath;
-}
 
 async function ensureMinimalProject(projectPath) {
   const projectGodotPath = path.join(projectPath, 'project.godot');
@@ -57,7 +52,9 @@ async function main() {
     );
   }
 
-  const GODOT_PATH = requireGodotPath();
+  const GODOT_PATH = await resolveGodotPath({
+    exampleCommand: 'GODOT_PATH=/abs/path/to/godot npm run verify:readme',
+  });
 
   const projectPath =
     process.env.VERIFY_PROJECT_PATH ??
@@ -65,42 +62,30 @@ async function main() {
   await fs.mkdir(projectPath, { recursive: true });
   await ensureMinimalProject(projectPath);
 
-  // Start MCP server
-  const server = spawn(process.execPath, [serverEntry], {
+  const { client, shutdown } = spawnMcpServer({
+    serverEntry,
     env: {
-      ...process.env,
       GODOT_PATH,
       ALLOW_DANGEROUS_OPS: 'true',
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
   });
 
-  const client = new JsonRpcProcessClient(server);
-  const results = [];
-
-  const runTest = async (name, fn) => {
-    console.log(`TEST: ${name}`);
-    try {
-      const result = await fn();
+  const { runStep: runTest, results } = createStepRunner({
+    onStart: (label) => console.log(`TEST: ${label}`),
+    onPass: (_label, result) => {
       console.log(`  ✅ PASS`);
       if (result?.details) {
         console.log(
           `  Details: ${JSON.stringify(result.details, null, 2).slice(0, 200)}`,
         );
       }
-      results.push({ name, ok: true });
-      return result;
-    } catch (error) {
-      console.log(`  ❌ FAIL: ${error.message}`);
-      results.push({ name, ok: false, error: error.message });
-      return null;
-    }
-  };
+    },
+    onFail: (_label, errorMessage) => console.log(`  ❌ FAIL: ${errorMessage}`),
+  });
 
   try {
     // Wait for server startup
-    await new Promise((r) => setTimeout(r, 500));
+    await wait(500);
 
     // Test 1: Get project info
     await runTest('get_project_info', async () =>
@@ -252,8 +237,7 @@ mesh = SubResource(1)
       client.callToolOrThrow('get_project_info', { projectPath }),
     );
   } finally {
-    client.dispose();
-    server.kill();
+    await shutdown();
   }
 
   // Summary
@@ -267,13 +251,13 @@ mesh = SubResource(1)
     results
       .filter((r) => !r.ok)
       .forEach((r) => {
-        console.log(`  - ${r.name}: ${r.error}`);
+        console.log(`  - ${r.label}: ${r.error}`);
       });
     process.exit(1);
   }
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(formatError(err));
   process.exit(1);
 });

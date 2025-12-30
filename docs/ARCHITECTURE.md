@@ -14,7 +14,8 @@ Related docs:
 ## Node/TypeScript Layout
 
 - `src/index.ts` — CLI entrypoint (stdio MCP server).
-- `src/server.ts` — MCP tool definitions + routing, standardized tool results.
+- `src/server.ts` — MCP server wiring: composes tool definitions, routes tool calls, standardizes results, writes audit logs.
+- `src/tools/definitions/*` — Tool definition data (name/description/input schema) exported as arrays and registered by `src/server.ts`.
 - `src/godot_cli.ts` — Godot executable detection + command execution helpers.
 - `src/headless_ops.ts` — wrapper for running `godot_operations.gd` and parsing its JSON output.
 - `src/editor_bridge_client.ts` — TCP client for the editor bridge (newline-delimited JSON).

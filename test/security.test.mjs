@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -10,10 +9,7 @@ import {
   redactSecrets,
   resolveInsideProject,
 } from '../build/security.js';
-
-function mkdtemp(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
+import { mkdtemp } from './helpers.mjs';
 
 test('resolveInsideProject allows inside paths and blocks escapes', () => {
   const projectRoot = mkdtemp('godot-mcp-omni-project-');
@@ -55,6 +51,7 @@ test('assertDangerousOpsAllowed gates dangerous ops', () => {
       () => assertDangerousOpsAllowed('export_mesh_library'),
       /Dangerous operation blocked/u,
     );
+    assert.doesNotThrow(() => assertDangerousOpsAllowed('op_export_preview'));
 
     process.env.ALLOW_DANGEROUS_OPS = 'true';
     assert.doesNotThrow(() => assertDangerousOpsAllowed('export_mesh_library'));

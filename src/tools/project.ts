@@ -23,17 +23,50 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
+type FindProjectsOptions = {
+  recursive: boolean;
+  maxDepth?: number;
+  ignoreDirs?: string[];
+  logDebug: (message: string) => void;
+};
+
+const DEFAULT_LIST_PROJECTS_IGNORE = [
+  'node_modules',
+  'build',
+  'dist',
+  '.tmp',
+  '.tools',
+  'Godot_v*',
+];
+
+function shouldIgnoreDirName(name: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (pattern.endsWith('*')) {
+      const prefix = pattern.slice(0, -1);
+      if (prefix.length > 0 && name.startsWith(prefix)) return true;
+      continue;
+    }
+    if (name === pattern) return true;
+  }
+  return false;
+}
+
 function findGodotProjects(
   directory: string,
-  recursive: boolean,
-  logDebug: (message: string) => void,
+  options: FindProjectsOptions,
+  depth = 0,
 ): { path: string; name: string }[] {
+  const ignorePatterns =
+    options.ignoreDirs !== undefined
+      ? options.ignoreDirs
+      : DEFAULT_LIST_PROJECTS_IGNORE;
   const projects: { path: string; name: string }[] = [];
   try {
     const entries = readdirSync(directory, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       if (entry.name.startsWith('.')) continue;
+      if (shouldIgnoreDirName(entry.name, ignorePatterns)) continue;
 
       const subdir = path.join(directory, entry.name);
       const projectFile = path.join(subdir, 'project.godot');
@@ -42,11 +75,18 @@ function findGodotProjects(
         continue;
       }
 
-      if (recursive)
-        projects.push(...findGodotProjects(subdir, true, logDebug));
+      const nextDepth = depth + 1;
+      if (
+        options.recursive &&
+        (options.maxDepth === undefined || nextDepth < options.maxDepth)
+      ) {
+        projects.push(...findGodotProjects(subdir, options, nextDepth));
+      }
     }
   } catch (error) {
-    logDebug(`Error searching directory ${directory}: ${String(error)}`);
+    options.logDebug(
+      `Error searching directory ${directory}: ${String(error)}`,
+    );
   }
   return projects;
 }
@@ -581,6 +621,7 @@ export function createProjectToolHandlers(
       const godotPathArg = normalizeOptionalString(
         asOptionalString(argsObj.godotPath, 'godotPath'),
       );
+      const headless = asOptionalBoolean(argsObj.headless, 'headless') ?? false;
       const sceneRaw = asOptionalNonEmptyString(argsObj.scene, 'scene');
       const scene = sceneRaw ? sceneRaw.trim() : undefined;
 
@@ -596,7 +637,12 @@ export function createProjectToolHandlers(
           existing.process.kill();
         }
 
-        const cmdArgs = ['-d', '--path', projectPath];
+        const cmdArgs = [
+          ...(headless ? ['--headless'] : []),
+          '-d',
+          '--path',
+          projectPath,
+        ];
         if (scene) {
           ctx.ensureNoTraversal(scene);
           cmdArgs.push(scene);
@@ -635,7 +681,9 @@ export function createProjectToolHandlers(
         ctx.setActiveProcess(state);
         return {
           ok: true,
-          summary: 'Godot project started (debug mode)',
+          summary: headless
+            ? 'Godot project started (headless debug mode)'
+            : 'Godot project started (debug mode)',
           details: { projectPath },
         };
       } catch (error) {
@@ -841,6 +889,34 @@ export function createProjectToolHandlers(
       const recursive =
         asOptionalBoolean(argsObj.recursive, 'recursive') ?? false;
 
+      const maxDepth = asOptionalPositiveNumber(
+        argsObj.maxDepth ?? (argsObj as Record<string, unknown>).max_depth,
+        'maxDepth',
+      );
+      if (maxDepth !== undefined && !Number.isInteger(maxDepth)) {
+        throw new ValidationError(
+          'maxDepth',
+          'Invalid field "maxDepth": expected integer',
+          'number',
+        );
+      }
+
+      const ignoreDirsRaw =
+        argsObj.ignoreDirs ?? (argsObj as Record<string, unknown>).ignore_dirs;
+      let ignoreDirs: string[] | undefined;
+      if (ignoreDirsRaw !== undefined) {
+        if (!Array.isArray(ignoreDirsRaw)) {
+          throw new ValidationError(
+            'ignoreDirs',
+            `Invalid field "ignoreDirs": expected array, got ${typeof ignoreDirsRaw}`,
+            typeof ignoreDirsRaw,
+          );
+        }
+        ignoreDirs = ignoreDirsRaw
+          .map((v, i) => asNonEmptyString(v, `ignoreDirs[${i}]`).trim())
+          .filter((v) => v.length > 0);
+      }
+
       try {
         ctx.ensureNoTraversal(directory);
         if (!existsSync(directory)) {
@@ -849,8 +925,10 @@ export function createProjectToolHandlers(
             summary: `Directory does not exist: ${directory}`,
           };
         }
-        const projects = findGodotProjects(directory, recursive, (m) =>
-          ctx.logDebug(m),
+        const projects = findGodotProjects(
+          directory,
+          { recursive, maxDepth, ignoreDirs, logDebug: (m) => ctx.logDebug(m) },
+          0,
         );
         return {
           ok: true,

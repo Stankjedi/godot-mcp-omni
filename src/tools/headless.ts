@@ -1,4 +1,3 @@
-import path from 'path';
 import { existsSync } from 'fs';
 
 import { executeHeadlessOperation } from '../headless_ops.js';
@@ -56,9 +55,12 @@ function validateHeadlessOpPaths(
   if (
     op === 'create_scene' ||
     op === 'add_node' ||
+    op === 'create_node_bundle' ||
     op === 'save_scene' ||
     op === 'set_node_properties' ||
     op === 'connect_signal' ||
+    op === 'instance_scene' ||
+    op === 'create_tilemap' ||
     op === 'validate_scene'
   ) {
     validate(getString('scenePath') ?? getString('scene_path'));
@@ -91,6 +93,69 @@ function validateHeadlessOpPaths(
     validate(getString('path'));
   if (op === 'create_resource')
     validate(getString('resourcePath') ?? getString('resource_path'));
+
+  if (op === 'instance_scene') {
+    validate(
+      getString('sourceScenePath') ??
+        getString('source_scene_path') ??
+        getString('instanceScenePath') ??
+        getString('instance_scene_path'),
+    );
+  }
+
+  if (op === 'create_tilemap') {
+    validate(getString('tileSetPath') ?? getString('tile_set_path'));
+    validate(
+      getString('tileSetTexturePath') ?? getString('tile_set_texture_path'),
+    );
+  }
+
+  if (op === 'op_tileset_create_from_atlas') {
+    validate(getString('pngPath') ?? getString('png_path'));
+    validate(
+      getString('outputTilesetPath') ?? getString('output_tileset_path'),
+    );
+  }
+
+  if (
+    op === 'op_world_scene_ensure_layers' ||
+    op === 'op_world_generate_tiles' ||
+    op === 'op_place_objects_tile' ||
+    op === 'op_place_objects_scene_instances' ||
+    op === 'op_export_preview'
+  ) {
+    validate(getString('scenePath') ?? getString('scene_path'));
+  }
+
+  if (op === 'op_export_preview') {
+    validate(
+      getString('outputPngPath') ??
+        getString('output_png_path') ??
+        getString('outputPath') ??
+        getString('output_path'),
+    );
+  }
+
+  if (
+    op === 'op_world_scene_ensure_layers' ||
+    op === 'op_world_generate_tiles'
+  ) {
+    validate(getString('tilesetPath') ?? getString('tileset_path'));
+  }
+
+  if (op === 'op_place_objects_scene_instances') {
+    const objects = params.objects;
+    if (Array.isArray(objects)) {
+      for (const raw of objects) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const obj = raw as Record<string, unknown>;
+        const scene =
+          (typeof obj.scenePath === 'string' ? obj.scenePath : undefined) ??
+          (typeof obj.scene_path === 'string' ? obj.scene_path : undefined);
+        validate(scene);
+      }
+    }
+  }
 }
 
 async function runHeadlessOp(
@@ -330,6 +395,11 @@ export function createHeadlessToolHandlers(
         argsObj.parentNodePath,
         'parentNodePath',
       );
+      const ensureUniqueName = asOptionalBoolean(
+        (argsObj as Record<string, unknown>).ensureUniqueName ??
+          (argsObj as Record<string, unknown>).ensure_unique_name,
+        'ensureUniqueName',
+      );
       if (!projectPath || !scenePath || !nodeType || !nodeName) {
         return {
           ok: false,
@@ -359,6 +429,8 @@ export function createHeadlessToolHandlers(
           nodeName,
         };
         if (argsObj.properties) params.properties = argsObj.properties;
+        if (ensureUniqueName !== undefined)
+          params.ensureUniqueName = ensureUniqueName;
 
         return await runHeadlessOp(ctx, 'add_node', params, projectPath);
       } catch (error) {
@@ -394,7 +466,9 @@ export function createHeadlessToolHandlers(
         const lowerTexturePath = texturePath.trim().toLowerCase();
         const looksSvg = lowerTexturePath.endsWith('.svg');
         const detailsObj =
-          first.details && typeof first.details === 'object' && !Array.isArray(first.details)
+          first.details &&
+          typeof first.details === 'object' &&
+          !Array.isArray(first.details)
             ? (first.details as Record<string, unknown>)
             : {};
         const hintSuggestions = Array.isArray(detailsObj.suggestions)
@@ -405,7 +479,8 @@ export function createHeadlessToolHandlers(
         const hintedImport = hintSuggestions.some((s) => s.includes('import'));
         const logText = (first.logs ?? []).join('\n').toLowerCase();
         const mentionedNotImported =
-          logText.includes('not imported') || first.summary.toLowerCase().includes('not imported');
+          logText.includes('not imported') ||
+          first.summary.toLowerCase().includes('not imported');
 
         if (!looksSvg || (!hintedImport && !mentionedNotImported)) return first;
 
@@ -414,7 +489,9 @@ export function createHeadlessToolHandlers(
         const importResult = await execGodot(godotPath, importArgs);
         const importLogs = [
           ...splitLines(importResult.stdout).map((l) => `[import] ${l}`),
-          ...splitLines(importResult.stderr).map((l) => `[import][stderr] ${l}`),
+          ...splitLines(importResult.stderr).map(
+            (l) => `[import][stderr] ${l}`,
+          ),
         ];
         if (importResult.exitCode !== 0) {
           return {

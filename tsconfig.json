@@ -4,6 +4,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "./build",
+    "incremental": true,
+    "tsBuildInfoFile": "./build/.tsbuildinfo",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
