@@ -54,6 +54,8 @@ func capabilities() -> Dictionary:
 			"viewport.set_screen",
 			"script.edit",
 			"script.add_breakpoint",
+			"project.user_data_dir",
+			"log.read",
 			"call",
 			"set",
 			"get",
@@ -132,6 +134,10 @@ func handle(method: String, params: Dictionary) -> Dictionary:
 			return _script_edit(params)
 		"script.add_breakpoint":
 			return _script_add_breakpoint(params)
+		"project.user_data_dir":
+			return _project_user_data_dir()
+		"log.read":
+			return _log_read(params)
 		"call":
 			return _generic_call(params)
 		"set":
@@ -150,6 +156,51 @@ func _resp_ok(result) -> Dictionary:
 
 func _resp_err(message: String, details: Dictionary = {}) -> Dictionary:
 	return { "ok": false, "error": { "message": message, "details": details } }
+
+func _project_user_data_dir() -> Dictionary:
+	return _resp_ok({
+		"user_data_dir": OS.get_user_data_dir(),
+		"user_dir": ProjectSettings.globalize_path("user://"),
+	})
+
+func _log_read(params: Dictionary) -> Dictionary:
+	var log_path := "user://logs/godot.log"
+	var max_bytes := int(params.get("max_bytes", params.get("maxBytes", 65536)))
+	if max_bytes <= 0:
+		max_bytes = 65536
+
+	var f := FileAccess.open(log_path, FileAccess.READ)
+	if f == null:
+		return _resp_err("Log file not found", { "path": log_path })
+
+	var length := int(f.get_length())
+	var offset := int(params.get("offset", -max_bytes))
+	if offset < 0:
+		offset = max(0, length + offset)
+	if offset > length:
+		offset = length
+
+	f.seek(offset)
+	var remaining := length - offset
+	var to_read := min(max_bytes, remaining)
+	var bytes: PackedByteArray = f.get_buffer(to_read)
+	var next_offset := int(f.get_position())
+	f.close()
+
+	var text := bytes.get_string_from_utf8()
+	var lines: Array[String] = []
+	for line in text.replace("\r\n", "\n").split("\n"):
+		var s := String(line).strip_edges(false, true)
+		if not s.is_empty():
+			lines.append(s)
+
+	return _resp_ok({
+		"path": log_path,
+		"offset": offset,
+		"length": length,
+		"next_offset": next_offset,
+		"lines": lines,
+	})
 
 func _variant_to_json(value):
 	match typeof(value):

@@ -51,6 +51,7 @@ export function createWorkspaceManagerHandler(
       'status',
       'run',
       'stop',
+      'smoke_test',
       'open_scene',
       'save_all',
       'restart',
@@ -279,6 +280,116 @@ export function createWorkspaceManagerHandler(
         projectPath,
         ...(wantsHeadless ? { headless: true } : {}),
       });
+    }
+
+    if (action === 'smoke_test') {
+      const projectPath = maybeGetString(
+        argsObj,
+        ['projectPath', 'project_path'],
+        'projectPath',
+      );
+      if (!projectPath) {
+        return {
+          ok: false,
+          summary: 'smoke_test requires projectPath',
+          details: { required: ['projectPath'] },
+        };
+      }
+      ctx.assertValidProject(projectPath);
+
+      const scene =
+        maybeGetString(
+          argsObj,
+          ['scene', 'scenePath', 'scene_path'],
+          'scene',
+        ) ?? undefined;
+      if (scene) ctx.ensureNoTraversal(scene);
+
+      const waitMs = Math.floor(
+        asOptionalNumber(
+          (argsObj as Record<string, unknown>).waitMs,
+          'waitMs',
+        ) ?? 1500,
+      );
+      const failOnIssues =
+        asOptionalBoolean(
+          (argsObj as Record<string, unknown>).failOnIssues,
+          'failOnIssues',
+        ) ?? true;
+
+      const runResp = await callBaseTool(baseHandlers, 'run_project', {
+        projectPath,
+        headless: true,
+        ...(scene ? { scene } : {}),
+      });
+      if (!runResp.ok) return runResp;
+
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+
+      const debugResp = await callBaseTool(
+        baseHandlers,
+        'get_debug_output',
+        {},
+      );
+      const stopResp = await callBaseTool(baseHandlers, 'stop_project', {});
+
+      const outLines =
+        debugResp.ok &&
+        debugResp.details &&
+        typeof debugResp.details === 'object' &&
+        !Array.isArray(debugResp.details) &&
+        Array.isArray((debugResp.details as Record<string, unknown>).output)
+          ? ((debugResp.details as Record<string, unknown>).output as unknown[])
+              .filter((v): v is string => typeof v === 'string')
+              .filter((v) => v.trim().length > 0)
+          : [];
+      const errLines =
+        debugResp.ok &&
+        debugResp.details &&
+        typeof debugResp.details === 'object' &&
+        !Array.isArray(debugResp.details) &&
+        Array.isArray((debugResp.details as Record<string, unknown>).errors)
+          ? ((debugResp.details as Record<string, unknown>).errors as unknown[])
+              .filter((v): v is string => typeof v === 'string')
+              .filter((v) => v.trim().length > 0)
+          : [];
+
+      const issues = [...outLines, ...errLines].filter((line) =>
+        /error|exception|panic|failed|parse error/iu.test(line),
+      );
+
+      if (failOnIssues && issues.length > 0) {
+        return {
+          ok: false,
+          summary: 'Smoke test found error-like output',
+          details: {
+            projectPath,
+            headless: true,
+            waitMs,
+            scene: scene ?? null,
+            issues,
+            debug: debugResp,
+            stop: stopResp,
+          },
+        };
+      }
+
+      return {
+        ok: true,
+        summary:
+          issues.length > 0
+            ? 'Smoke test completed (issues found)'
+            : 'Smoke test completed',
+        details: {
+          projectPath,
+          headless: true,
+          waitMs,
+          scene: scene ?? null,
+          issues,
+          debug: debugResp,
+          stop: stopResp,
+        },
+      };
     }
 
     if (action === 'doctor_report') {

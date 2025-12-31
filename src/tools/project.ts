@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import fs from 'fs/promises';
 import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import net from 'net';
 
 import {
@@ -42,6 +43,52 @@ const DEFAULT_LIST_PROJECTS_IGNORE = [
   '.tools',
   'Godot_v*',
 ];
+
+const DEFAULT_BRIDGE_PORT = 8765;
+const DEFAULT_BRIDGE_HOST = '127.0.0.1';
+
+async function readOptionalTextFile(filePath: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(filePath, 'utf8');
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function isTcpPortOpen(
+  host: string,
+  port: number,
+  timeoutMs = 350,
+): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket.destroy();
+      } catch {
+        // ignore
+      }
+      resolve(ok);
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+
+    try {
+      socket.connect(port, host);
+    } catch {
+      finish(false);
+    }
+  });
+}
 
 function shouldIgnoreDirName(name: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
@@ -168,6 +215,10 @@ function normalizeOptionalString(
 
 function normalizeNewlines(text: string): string {
   return text.replace(/\r\n/gu, '\n');
+}
+
+function generateRandomToken(): string {
+  return randomBytes(16).toString('hex');
 }
 
 function serializePackedStringArray(values: string[]): string {
@@ -513,6 +564,9 @@ export function createProjectToolHandlers(
         asOptionalString(argsObj.godotPath, 'godotPath'),
       );
       const tokenRaw = asOptionalString(argsObj.token, 'token');
+      const hostArg = normalizeOptionalString(
+        asOptionalString(argsObj.host, 'host'),
+      );
       const port = asOptionalPositiveNumber(argsObj.port, 'port');
       if (port !== undefined && !Number.isInteger(port)) {
         throw new ValidationError(
@@ -526,6 +580,55 @@ export function createProjectToolHandlers(
 
       try {
         ctx.assertValidProject(projectPath);
+
+        const lockPath = path.join(projectPath, '.godot_mcp', 'bridge.lock');
+        if (existsSync(lockPath)) {
+          const host =
+            hostArg ??
+            normalizeOptionalString(process.env.GODOT_MCP_HOST) ??
+            (await readOptionalTextFile(
+              path.join(projectPath, '.godot_mcp_host'),
+            )) ??
+            DEFAULT_BRIDGE_HOST;
+          const envPortRaw = process.env.GODOT_MCP_PORT?.trim() ?? '';
+          const envPort = envPortRaw ? Number.parseInt(envPortRaw, 10) : NaN;
+          const portToCheck =
+            typeof port === 'number'
+              ? port
+              : Number.isInteger(envPort) && envPort > 0
+                ? envPort
+                : Number.parseInt(
+                    (await readOptionalTextFile(
+                      path.join(projectPath, '.godot_mcp_port'),
+                    )) ?? '',
+                    10,
+                  ) || DEFAULT_BRIDGE_PORT;
+
+          const reachable =
+            Number.isInteger(portToCheck) && portToCheck > 0
+              ? await isTcpPortOpen(host, portToCheck)
+              : false;
+
+          if (reachable) {
+            ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
+            return {
+              ok: true,
+              summary:
+                'Godot editor appears to be already running (bridge.lock present); skipping launch',
+              details: {
+                projectPath,
+                lockPath,
+                host,
+                port: portToCheck,
+                alreadyRunning: true,
+                suggestions: [
+                  'Call godot_workspace_manager(action="connect") to attach to the running editor.',
+                ],
+              },
+            };
+          }
+        }
+
         const godotPath = await ctx.ensureGodotPath(godotPathArg);
 
         const shouldWriteBridgeConfig =
@@ -781,6 +884,9 @@ export function createProjectToolHandlers(
       const projectPath = asNonEmptyString(argsObj.projectPath, 'projectPath');
       const enablePlugin =
         asOptionalBoolean(argsObj.enablePlugin, 'enablePlugin') ?? true;
+      const ensureToken =
+        asOptionalBoolean(argsObj.ensureToken, 'ensureToken') ?? true;
+      const tokenFromArg = asOptionalString(argsObj.token, 'token');
 
       try {
         ctx.assertValidProject(projectPath);
@@ -789,6 +895,7 @@ export function createProjectToolHandlers(
         const dstAddon = path.join(projectPath, 'addons', 'godot_mcp_bridge');
         const projectGodotPath = path.join(projectPath, 'project.godot');
         const lockPath = path.join(projectPath, '.godot_mcp', 'bridge.lock');
+        const tokenPath = path.join(projectPath, '.godot_mcp_token');
 
         if (existsSync(lockPath)) {
           return {
@@ -815,6 +922,36 @@ export function createProjectToolHandlers(
           }
         }
 
+        let tokenCreated = false;
+        let tokenUpdated = false;
+        if (ensureToken) {
+          let existingToken = '';
+          try {
+            existingToken = (await fs.readFile(tokenPath, 'utf8')).trim();
+          } catch {
+            // ignore
+          }
+
+          const desiredToken =
+            typeof tokenFromArg === 'string' && tokenFromArg.trim().length > 0
+              ? tokenFromArg.trim()
+              : '';
+
+          if (desiredToken) {
+            if (existingToken !== desiredToken) {
+              logs.push('Updating .godot_mcp_token from explicit token arg.');
+              await fs.writeFile(tokenPath, `${desiredToken}\n`, 'utf8');
+              tokenCreated = existingToken.length === 0;
+              tokenUpdated = existingToken.length > 0;
+            }
+          } else if (!existingToken) {
+            logs.push('Creating .godot_mcp_token (missing/empty).');
+            const generated = generateRandomToken();
+            await fs.writeFile(tokenPath, `${generated}\n`, 'utf8');
+            tokenCreated = true;
+          }
+        }
+
         return {
           ok: true,
           summary: 'Addon synced to project.',
@@ -824,6 +961,10 @@ export function createProjectToolHandlers(
             projectGodotPath,
             enablePlugin,
             pluginUpdated,
+            ensureToken,
+            tokenPath,
+            tokenCreated,
+            tokenUpdated,
           },
           logs,
         };

@@ -5,7 +5,7 @@ This document is generated from the build-time tool definition modules.
 - Source: `build/tools/definitions/*.js`
 - Generator: `scripts/generate_tools_md.js`
 
-Total tools: 47
+Total tools: 48
 
 ---
 
@@ -189,6 +189,15 @@ Unified inspector/query tool (multi-action; uses editor bridge; connect_signal s
 | Required keys | `action`                                                                             |
 | Action enum   | `query`, `inspect`, `select`, `connect_signal`, `disconnect_signal`, `property_list` |
 
+## `godot_log_manager`
+
+Read/poll Godot editor logs for error-like lines (requires editor bridge).
+
+| Field         | Value          |
+| ------------- | -------------- |
+| Required keys | `action`       |
+| Action enum   | `poll`, `tail` |
+
 ## `godot_preflight`
 
 Run lightweight environment checks for a Godot project (project file, addon, port, optional Godot path).
@@ -256,10 +265,10 @@ Sync the editor bridge addon into a Godot project and optionally enable the plug
 
 Unified workspace tool (multi-action; launches/connects editor, runs/stops/restarts via editor when connected otherwise headless run_project).
 
-| Field         | Value                                                                                              |
-| ------------- | -------------------------------------------------------------------------------------------------- |
-| Required keys | `action`                                                                                           |
-| Action enum   | `launch`, `connect`, `status`, `run`, `stop`, `open_scene`, `save_all`, `restart`, `doctor_report` |
+| Field         | Value                                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Required keys | `action`                                                                                                         |
+| Action enum   | `launch`, `connect`, `status`, `run`, `stop`, `smoke_test`, `open_scene`, `save_all`, `restart`, `doctor_report` |
 
 ## `launch_editor`
 

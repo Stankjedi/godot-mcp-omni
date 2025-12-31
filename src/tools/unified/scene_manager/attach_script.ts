@@ -8,6 +8,7 @@ import {
   hasEditorConnection,
   maybeGetString,
   parseResourceSpec,
+  resourcePathFromSpec,
   toResourceJson,
   type BaseToolHandlers,
 } from '../shared.js';
@@ -78,13 +79,18 @@ export async function handleAttachScript(
     };
   }
 
+  const resolvedScriptPath = resourcePathFromSpec(scriptSpec);
+  if (!resolvedScriptPath) {
+    return {
+      ok: false,
+      summary: 'attach_script requires a script path for headless mode',
+      details: { script: scriptSpec },
+    };
+  }
+
   return await callBaseTool(baseHandlers, 'godot_headless_op', {
     projectPath,
-    operation: 'set_node_properties',
-    params: {
-      scenePath,
-      nodePath,
-      props: { script: toResourceJson(scriptSpec) },
-    },
+    operation: 'attach_script',
+    params: { scenePath, nodePath, scriptPath: resolvedScriptPath },
   });
 }

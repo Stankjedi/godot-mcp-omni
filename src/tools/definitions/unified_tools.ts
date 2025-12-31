@@ -203,6 +203,7 @@ export const UNIFIED_TOOL_DEFINITIONS: ToolDefinition[] = [
             'status',
             'run',
             'stop',
+            'smoke_test',
             'open_scene',
             'save_all',
             'restart',
@@ -221,6 +222,12 @@ export const UNIFIED_TOOL_DEFINITIONS: ToolDefinition[] = [
         timeoutMs: { type: 'number' },
         scene: { type: 'string' },
         scenePath: { type: 'string' },
+        waitMs: { type: 'number' },
+        failOnIssues: {
+          type: 'boolean',
+          description:
+            'When action=smoke_test: if true (default), returns ok=false when error-like output is detected.',
+        },
         reportRelativePath: {
           type: 'string',
           description:
@@ -241,6 +248,48 @@ export const UNIFIED_TOOL_DEFINITIONS: ToolDefinition[] = [
             deepSceneInstantiate: { type: 'boolean', default: false },
           },
         },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'godot_log_manager',
+    description:
+      'Read/poll Godot editor logs for error-like lines (requires editor bridge).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['poll', 'tail'] },
+        cursor: {
+          type: 'number',
+          description:
+            'When action=poll: file offset cursor returned by the previous call. When action=tail: defaults to -maxBytes (read from end).',
+        },
+        maxBytes: {
+          type: 'number',
+          description: 'Maximum bytes to read per call (default: 65536).',
+        },
+        maxMatches: {
+          type: 'number',
+          description:
+            'Maximum number of lines to return after filtering (default: 50).',
+        },
+        onlyErrors: {
+          type: 'boolean',
+          description:
+            'If true (default), return only error-like lines (or pattern matches).',
+        },
+        pattern: {
+          type: 'string',
+          description:
+            'Optional regex (case-insensitive) used instead of the default error-like filter.',
+        },
+        openScriptOnError: {
+          type: 'boolean',
+          description:
+            'If true, opens the first parsed script error in the editor (best-effort).',
+        },
+        timeoutMs: { type: 'number' },
       },
       required: ['action'],
     },

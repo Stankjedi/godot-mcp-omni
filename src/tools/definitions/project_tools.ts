@@ -84,6 +84,16 @@ export const PROJECT_TOOL_DEFINITIONS: ToolDefinition[] = [
           type: 'boolean',
           description: 'Optional: enable editor plugin (default: true)',
         },
+        ensureToken: {
+          type: 'boolean',
+          description:
+            'Optional: create/update <project>/.godot_mcp_token if missing/empty (default: true).',
+        },
+        token: {
+          type: 'string',
+          description:
+            'Optional: explicit token string. Only used when ensureToken=true; never returned in outputs.',
+        },
       },
       required: ['projectPath'],
     },
