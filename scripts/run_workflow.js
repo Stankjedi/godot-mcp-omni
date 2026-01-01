@@ -12,6 +12,10 @@ import {
   spawnMcpServer,
   wait,
 } from './mcp_test_harness.js';
+import {
+  deepSubstitute,
+  validateWorkflowJson,
+} from '../build/workflow/workflow_validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,24 +83,6 @@ function parseArgs(argv) {
   return args;
 }
 
-function isRecord(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function deepSubstitute(value, substitutions) {
-  if (typeof value === 'string') return substitutions[value] ?? value;
-  if (Array.isArray(value))
-    return value.map((entry) => deepSubstitute(entry, substitutions));
-  if (isRecord(value)) {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = deepSubstitute(v, substitutions);
-    }
-    return out;
-  }
-  return value;
-}
-
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) {
@@ -117,17 +103,23 @@ async function main() {
 
   const workflowPath = path.resolve(process.cwd(), parsed.workflowPath);
   const raw = await fs.readFile(workflowPath, 'utf8');
-  const workflow = JSON.parse(raw);
-  if (!isRecord(workflow) || !Array.isArray(workflow.steps)) {
-    throw new Error('Invalid workflow JSON: expected { steps: [...] }');
-  }
+  const parsedJson = JSON.parse(raw);
+  const workflow = validateWorkflowJson(parsedJson, {
+    workflowPathForErrors: workflowPath,
+    allowWorkflowManagerTool: true,
+  });
 
-  const projectPath =
+  const projectPathInput =
     typeof parsed.projectPath === 'string' && parsed.projectPath.trim()
       ? parsed.projectPath.trim()
       : typeof workflow.projectPath === 'string' && workflow.projectPath.trim()
         ? workflow.projectPath.trim()
         : null;
+
+  const projectPath =
+    typeof projectPathInput === 'string' && projectPathInput.length > 0
+      ? path.resolve(process.cwd(), projectPathInput)
+      : null;
 
   const substitutions = { $PROJECT_PATH: projectPath ?? '' };
 
@@ -158,43 +150,32 @@ async function main() {
 
     for (let index = 0; index < workflow.steps.length; index += 1) {
       const step = workflow.steps[index];
-      if (!isRecord(step))
-        throw new Error(`Invalid workflow step at index ${index}`);
+      const label = `[${index + 1}/${workflow.steps.length} ${step.id}] ${step.title}`;
 
-      const id =
-        typeof step.id === 'string' ? step.id.trim() : `STEP-${index + 1}`;
-      const title =
-        typeof step.title === 'string' && step.title.trim()
-          ? step.title.trim()
-          : typeof step.tool === 'string'
-            ? step.tool
-            : 'unknown';
-      const tool = typeof step.tool === 'string' ? step.tool.trim() : '';
-      const expectOk =
-        typeof step.expectOk === 'boolean' ? step.expectOk : true;
+      const args = deepSubstitute(step.args, substitutions);
 
-      if (!tool) throw new Error(`Missing step.tool for ${id}`);
+      await runStep(label, async () => {
+        try {
+          if (step.tool === 'tools/list') {
+            const resp = await client.send('tools/list', {});
+            if ('error' in resp) throw new Error(JSON.stringify(resp.error));
+            if (step.expectOk !== true)
+              throw new Error('tools/list does not support expectOk=false');
+            return resp.result;
+          }
 
-      const rawArgs = isRecord(step.args) ? step.args : {};
-      const args = deepSubstitute(rawArgs, substitutions);
-
-      await runStep(`[${id}] ${title}`, async () => {
-        if (tool === 'tools/list') {
-          const resp = await client.send('tools/list', {});
-          if ('error' in resp) throw new Error(JSON.stringify(resp.error));
-          if (expectOk !== true)
-            throw new Error('tools/list does not support expectOk=false');
-          return resp.result;
-        }
-
-        const resp = await client.callTool(tool, args);
-        if (resp.ok !== expectOk) {
+          const resp = await client.callTool(step.tool, args);
+          if (resp.ok !== step.expectOk) {
+            throw new Error(
+              `Expected ok=${step.expectOk}, got ok=${resp.ok} (${resp.summary ?? 'no summary'})`,
+            );
+          }
+          return resp;
+        } catch (error) {
           throw new Error(
-            `Expected ok=${expectOk}, got ok=${resp.ok} (${resp.summary ?? 'no summary'})`,
+            `Step ${index + 1} (id=${step.id}) failed: ${formatError(error)}`,
           );
         }
-        if (!resp.ok) throw new Error(resp.summary ?? 'Tool failed');
-        return resp;
       });
     }
   } finally {

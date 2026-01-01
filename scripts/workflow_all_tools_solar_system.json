@@ -1,0 +1,866 @@
+{
+  "$schema": "./workflow.schema.json",
+  "schemaVersion": 1,
+  "projectPath": "../test_project",
+  "steps": [
+    {
+      "id": "ALL-001",
+      "title": "tools/list (inventory)",
+      "tool": "tools/list",
+      "args": {},
+      "expectOk": true
+    },
+    {
+      "id": "ALL-002",
+      "title": "list_projects (repo root)",
+      "tool": "list_projects",
+      "args": {
+        "directory": "$PROJECT_PATH",
+        "recursive": false
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-003",
+      "title": "get_godot_version",
+      "tool": "get_godot_version",
+      "args": {},
+      "expectOk": true
+    },
+    {
+      "id": "ALL-004",
+      "title": "get_project_info (solar system project)",
+      "tool": "get_project_info",
+      "args": {
+        "projectPath": "$PROJECT_PATH"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-005",
+      "title": "godot_preflight (solar system project)",
+      "tool": "godot_preflight",
+      "args": {
+        "projectPath": "$PROJECT_PATH"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-006",
+      "title": "godot_sync_addon (no token write)",
+      "tool": "godot_sync_addon",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "enablePlugin": true,
+        "ensureToken": false
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-007",
+      "title": "godot_import_project_assets",
+      "tool": "godot_import_project_assets",
+      "args": {
+        "projectPath": "$PROJECT_PATH"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-008",
+      "title": "godot_headless_batch (build 3D solar system scene)",
+      "tool": "godot_headless_batch",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "stopOnError": true,
+        "steps": [
+          {
+            "operation": "create_scene",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "rootNodeType": "Node3D"
+            }
+          },
+          {
+            "operation": "create_script",
+            "params": {
+              "scriptPath": "res://scripts/solar_system.gd",
+              "extends": "Node3D",
+              "template": "minimal"
+            }
+          },
+          {
+            "operation": "write_text_file",
+            "params": {
+              "path": "res://scripts/solar_system.gd",
+              "content": "extends Node3D\n\n@export var time_scale: float = 1.0\n\nvar _orbit_nodes: Array[Node3D] = []\n\nfunc _ready() -> void:\n\t_orbit_nodes.clear()\n\tfor child in get_children():\n\t\tif child is Node3D and String(child.name).begins_with(\"Orbit_\"):\n\t\t\t_orbit_nodes.append(child)\n\tprint(\"[SolarSystem] ready; orbits=\", _orbit_nodes.size())\n\nfunc _orbit_speed(orbit_name: String) -> float:\n\tmatch orbit_name:\n\t\t\"Orbit_Mercury\":\n\t\t\treturn 1.35\n\t\t\"Orbit_Venus\":\n\t\t\treturn 1.05\n\t\t\"Orbit_Earth\":\n\t\t\treturn 0.95\n\t\t\"Orbit_Mars\":\n\t\t\treturn 0.80\n\t\t\"Orbit_Jupiter\":\n\t\t\treturn 0.50\n\t\t\"Orbit_Saturn\":\n\t\t\treturn 0.35\n\t\t_:\n\t\t\treturn 0.25\n\nfunc _process(delta: float) -> void:\n\tvar dt := delta * time_scale\n\tfor orbit in _orbit_nodes:\n\t\tvar speed := _orbit_speed(String(orbit.name))\n\t\torbit.rotate_y(dt * speed)\n\t\tfor child in orbit.get_children():\n\t\t\tif child is Node3D:\n\t\t\t\tchild.rotate_y(dt * 1.2)\n"
+            }
+          },
+          {
+            "operation": "attach_script",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "nodePath": "root",
+              "scriptPath": "res://scripts/solar_system.gd"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Sun",
+              "properties": {
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 1.6 }
+                },
+                "material_override": {
+                  "$resource": "StandardMaterial3D",
+                  "props": {
+                    "albedo_color": {
+                      "$type": "Color",
+                      "r": 1.0,
+                      "g": 0.9,
+                      "b": 0.2,
+                      "a": 1.0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "OmniLight3D",
+              "nodeName": "SunLight",
+              "properties": {
+                "light_energy": 8.0,
+                "light_color": {
+                  "$type": "Color",
+                  "r": 1.0,
+                  "g": 0.95,
+                  "b": 0.8,
+                  "a": 1.0
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Camera3D",
+              "nodeName": "Camera",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 0, "y": 8, "z": 22 },
+                "rotation_degrees": {
+                  "$type": "Vector3",
+                  "x": -15,
+                  "y": 0,
+                  "z": 0
+                },
+                "current": true
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Mercury"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Mercury",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Mercury",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 3.5, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.25 }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Venus"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Venus",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Venus",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 5.2, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.4 }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Earth"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Earth",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Earth",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 7.0, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.45 }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Mars"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Mars",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Mars",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 9.2, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.32 }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Jupiter"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Jupiter",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Jupiter",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 13.0, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.9 }
+                }
+              }
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root",
+              "nodeType": "Node3D",
+              "nodeName": "Orbit_Saturn"
+            }
+          },
+          {
+            "operation": "add_node",
+            "params": {
+              "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+              "parentNodePath": "root/Orbit_Saturn",
+              "nodeType": "MeshInstance3D",
+              "nodeName": "Saturn",
+              "properties": {
+                "position": { "$type": "Vector3", "x": 17.0, "y": 0, "z": 0 },
+                "mesh": {
+                  "$resource": "SphereMesh",
+                  "props": { "radius": 0.75 }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-009",
+      "title": "godot_headless_op (validate_scene)",
+      "tool": "godot_headless_op",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "operation": "validate_scene",
+        "params": {
+          "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn"
+        }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-010",
+      "title": "godot_workspace_manager status",
+      "tool": "godot_workspace_manager",
+      "args": { "action": "status", "projectPath": "$PROJECT_PATH" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-011",
+      "title": "godot_workspace_manager doctor_report",
+      "tool": "godot_workspace_manager",
+      "args": { "action": "doctor_report", "projectPath": "$PROJECT_PATH" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-012",
+      "title": "godot_workspace_manager smoke_test (SolarSystem3D)",
+      "tool": "godot_workspace_manager",
+      "args": {
+        "action": "smoke_test",
+        "projectPath": "$PROJECT_PATH",
+        "scene": "res://scenes/solar_system/SolarSystem3D.tscn",
+        "waitMs": 1200
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-013",
+      "title": "run_project + get_debug_output + stop_project",
+      "tool": "run_project",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "headless": true,
+        "scene": "res://scenes/solar_system/SolarSystem3D.tscn"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-014",
+      "title": "get_debug_output",
+      "tool": "get_debug_output",
+      "args": {},
+      "expectOk": true
+    },
+    {
+      "id": "ALL-015",
+      "title": "stop_project",
+      "tool": "stop_project",
+      "args": {},
+      "expectOk": true
+    },
+    {
+      "id": "ALL-016",
+      "title": "create_scene (SpriteTest)",
+      "tool": "create_scene",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
+        "rootNodeType": "Node2D"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-017",
+      "title": "add_node (Sprite2D)",
+      "tool": "add_node",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
+        "parentNodePath": "root",
+        "nodeType": "Sprite2D",
+        "nodeName": "Sprite"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-018",
+      "title": "add_node (Timer)",
+      "tool": "add_node",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
+        "parentNodePath": "root",
+        "nodeType": "Timer",
+        "nodeName": "Timer",
+        "properties": { "wait_time": 0.25, "autostart": true }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-019",
+      "title": "godot_headless_op (write script for signal target)",
+      "tool": "godot_headless_op",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "operation": "write_text_file",
+        "params": {
+          "path": "res://scripts/tool_coverage/signal_target.gd",
+          "content": "extends Node2D\n\nfunc _on_timer_timeout() -> void:\n\t# Smoke output (should not include 'error'/'failed')\n\tprint(\"[SpriteTest] timer tick\")\n"
+        }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-020",
+      "title": "godot_headless_op (attach_script SpriteTest root)",
+      "tool": "godot_headless_op",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "operation": "attach_script",
+        "params": {
+          "scenePath": "res://scenes/tool_coverage/SpriteTest.tscn",
+          "nodePath": "root",
+          "scriptPath": "res://scripts/tool_coverage/signal_target.gd"
+        }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-021",
+      "title": "godot_inspector_manager connect_signal (headless fallback)",
+      "tool": "godot_inspector_manager",
+      "args": {
+        "action": "connect_signal",
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "res://scenes/tool_coverage/SpriteTest.tscn",
+        "fromNodePath": "root/Timer",
+        "signal": "timeout",
+        "toNodePath": "root",
+        "method": "_on_timer_timeout"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-022",
+      "title": "load_sprite (PNG) via headless op module",
+      "tool": "load_sprite",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
+        "nodePath": "root/Sprite",
+        "texturePath": "assets/test.png"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-023",
+      "title": "save_scene (SpriteTest)",
+      "tool": "save_scene",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "scenes/tool_coverage/SpriteTest.tscn"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-024",
+      "title": "get_uid (PNG)",
+      "tool": "get_uid",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "filePath": "assets/test.png"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-025",
+      "title": "godot_asset_manager get_uid (PNG)",
+      "tool": "godot_asset_manager",
+      "args": {
+        "action": "get_uid",
+        "projectPath": "$PROJECT_PATH",
+        "filePath": "assets/test.png"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-026",
+      "title": "godot_asset_manager load_texture (SpriteTest)",
+      "tool": "godot_asset_manager",
+      "args": {
+        "action": "load_texture",
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "res://scenes/tool_coverage/SpriteTest.tscn",
+        "nodePath": "root/Sprite",
+        "texturePath": "assets/test.png"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-027",
+      "title": "godot_scene_manager create (headless, add marker node)",
+      "tool": "godot_scene_manager",
+      "args": {
+        "action": "create",
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "res://scenes/tool_coverage/SpriteTest.tscn",
+        "parentNodePath": "root",
+        "nodeType": "Node2D",
+        "nodeName": "UnifiedMarker",
+        "ensureUniqueName": true
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-028",
+      "title": "godot_headless_op (create_resource StandardMaterial3D)",
+      "tool": "godot_headless_op",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "operation": "create_resource",
+        "params": {
+          "resourcePath": "res://resources/tool_coverage/test_material.tres",
+          "type": "StandardMaterial3D",
+          "props": {
+            "albedo_color": {
+              "$type": "Color",
+              "r": 0.2,
+              "g": 0.8,
+              "b": 1.0,
+              "a": 1.0
+            }
+          }
+        }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-029",
+      "title": "pixel_project_analyze",
+      "tool": "pixel_project_analyze",
+      "args": { "projectPath": "$PROJECT_PATH" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-030",
+      "title": "pixel_goal_to_spec (builtin plan)",
+      "tool": "pixel_goal_to_spec",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "goal": "tilemap + world (size 16x16), place trees density 0.2",
+        "allowExternalTools": false
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-031",
+      "title": "pixel_manager project_analyze forwarding",
+      "tool": "pixel_manager",
+      "args": { "action": "project_analyze", "projectPath": "$PROJECT_PATH" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-032",
+      "title": "pixel_manager goal_to_spec forwarding",
+      "tool": "pixel_manager",
+      "args": {
+        "action": "goal_to_spec",
+        "projectPath": "$PROJECT_PATH",
+        "goal": "tilemap + world (size 16x16)"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-033",
+      "title": "pixel_smoke_test (run main scene headless)",
+      "tool": "pixel_smoke_test",
+      "args": { "projectPath": "$PROJECT_PATH", "waitMs": 800 },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-034",
+      "title": "pixel_manifest_get (expected missing)",
+      "tool": "pixel_manifest_get",
+      "args": { "projectPath": "$PROJECT_PATH" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-035",
+      "title": "pixel_export_preview (expected fail: invalid spec type)",
+      "tool": "pixel_export_preview",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "spec": "INVALID_SPEC_SHOULD_BE_OBJECT"
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-036",
+      "title": "pixel_layer_ensure (expected fail)",
+      "tool": "pixel_layer_ensure",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "res://nope.tscn",
+        "layerName": "Terrain"
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-037",
+      "title": "pixel_tilemap_generate (expected fail: minimal spec)",
+      "tool": "pixel_tilemap_generate",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "spec": { "name": "TestTilemap" },
+        "imageGenMode": "manual_drop"
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-038",
+      "title": "pixel_world_generate (expected fail: missing tileset)",
+      "tool": "pixel_world_generate",
+      "args": { "projectPath": "$PROJECT_PATH", "spec": {} },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-039",
+      "title": "pixel_object_generate (expected fail: minimal spec)",
+      "tool": "pixel_object_generate",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "spec": { "name": "TestObject" },
+        "imageGenMode": "manual_drop"
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-040",
+      "title": "pixel_object_place (expected fail)",
+      "tool": "pixel_object_place",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "scenePath": "res://nope.tscn",
+        "spec": { "objects": [] }
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-041",
+      "title": "pixel_macro_run (dryRun)",
+      "tool": "pixel_macro_run",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "goal": "tilemap + world + objects",
+        "dryRun": true
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-042",
+      "title": "pixel_manager smoke_test forwarding",
+      "tool": "pixel_manager",
+      "args": {
+        "action": "smoke_test",
+        "projectPath": "$PROJECT_PATH",
+        "waitMs": 500
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-043",
+      "title": "macro_manager list_macros",
+      "tool": "macro_manager",
+      "args": { "action": "list_macros" },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-044",
+      "title": "macro_manager describe_macro (input_system_scaffold)",
+      "tool": "macro_manager",
+      "args": {
+        "action": "describe_macro",
+        "projectPath": "$PROJECT_PATH",
+        "macroId": "input_system_scaffold"
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-045",
+      "title": "workflow_manager run (tools/list)",
+      "tool": "workflow_manager",
+      "args": {
+        "action": "run",
+        "workflow": {
+          "schemaVersion": 1,
+          "steps": [
+            {
+              "id": "WF-INNER-001",
+              "title": "List tools",
+              "tool": "tools/list",
+              "args": {}
+            }
+          ]
+        }
+      },
+      "expectOk": true
+    },
+    {
+      "id": "ALL-046",
+      "title": "aseprite_doctor (expected fail: aseprite not installed)",
+      "tool": "aseprite_doctor",
+      "args": { "timeoutMs": 1000 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-047",
+      "title": "aseprite_export_spritesheet (expected fail: missing input)",
+      "tool": "aseprite_export_spritesheet",
+      "args": {
+        "projectPath": "$PROJECT_PATH",
+        "inputPath": "assets/missing.aseprite",
+        "outputPngPath": "assets/generated/missing.png"
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-048",
+      "title": "Editor bridge connect (expected fail: not running)",
+      "tool": "godot_connect_editor",
+      "args": { "projectPath": "$PROJECT_PATH", "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-049",
+      "title": "godot_rpc (expected fail: not connected)",
+      "tool": "godot_rpc",
+      "args": {
+        "request_json": { "method": "ping", "params": {} },
+        "timeoutMs": 500
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-050",
+      "title": "godot_inspect (expected fail: not connected)",
+      "tool": "godot_inspect",
+      "args": { "query_json": { "class_name": "Node" }, "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-051",
+      "title": "godot_editor_batch (expected fail: not connected)",
+      "tool": "godot_editor_batch",
+      "args": {
+        "steps": [{ "method": "noop", "params": {} }],
+        "timeoutMs": 500
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-052",
+      "title": "godot_select_node (expected fail: not connected)",
+      "tool": "godot_select_node",
+      "args": { "nodePath": "root", "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-053",
+      "title": "godot_scene_tree_query (expected fail: not connected)",
+      "tool": "godot_scene_tree_query",
+      "args": { "className": "Node", "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-054",
+      "title": "godot_duplicate_node (expected fail: not connected)",
+      "tool": "godot_duplicate_node",
+      "args": { "nodePath": "root", "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-055",
+      "title": "godot_reparent_node (expected fail: not connected)",
+      "tool": "godot_reparent_node",
+      "args": { "nodePath": "root", "newParentPath": "root", "timeoutMs": 500 },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-056",
+      "title": "godot_add_scene_instance (expected fail: not connected)",
+      "tool": "godot_add_scene_instance",
+      "args": {
+        "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
+        "timeoutMs": 500
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-057",
+      "title": "godot_disconnect_signal (expected fail: not connected)",
+      "tool": "godot_disconnect_signal",
+      "args": {
+        "fromNodePath": "root/Timer",
+        "signal": "timeout",
+        "toNodePath": "root",
+        "method": "_on_timer_timeout",
+        "timeoutMs": 500
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-058",
+      "title": "godot_editor_view_manager edit_script (expected fail: not connected)",
+      "tool": "godot_editor_view_manager",
+      "args": {
+        "action": "edit_script",
+        "scriptPath": "res://scripts/solar_system.gd",
+        "lineNumber": 1,
+        "timeoutMs": 500
+      },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-059",
+      "title": "godot_log_manager poll (expected fail: not connected)",
+      "tool": "godot_log_manager",
+      "args": { "action": "poll" },
+      "expectOk": false
+    },
+    {
+      "id": "ALL-060",
+      "title": "launch_editor (expected fail: invalid project path, do not spawn GUI)",
+      "tool": "launch_editor",
+      "args": { "projectPath": "mcp_invalid_project_for_editor" },
+      "expectOk": false
+    }
+  ]
+}

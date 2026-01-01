@@ -114,6 +114,7 @@ async function loadToolDefinitions() {
     },
     { file: 'macro_tools.js', exportName: 'MACRO_TOOL_DEFINITIONS' },
     { file: 'pixel_tools.js', exportName: 'PIXEL_TOOL_DEFINITIONS' },
+    { file: 'workflow_tools.js', exportName: 'WORKFLOW_TOOL_DEFINITIONS' },
   ];
 
   for (const src of sources) {

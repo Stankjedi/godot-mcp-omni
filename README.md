@@ -77,6 +77,15 @@ GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 - `IMAGE_GEN_URL`
 - `SPEC_GEN_URL`
 
+### 🧭 Workflow (도구 호출 오케스트레이션)
+
+여러 MCP 도구 호출을 “단계(steps)”로 묶어 순차 실행/검증할 수 있습니다.
+
+- 스키마: `scripts/workflow.schema.json`
+- 최소 예시: `scripts/workflow_example.json`
+- 실행 스크립트: `scripts/run_workflow.js` (`npm run workflow:run`)
+- 가이드: `docs/workflow.md`
+
 ---
 
 ## 📦 요구사항
@@ -117,6 +126,7 @@ npm run build
       - (WSL 주의) WSL에서 Windows Godot(`.exe`)를 실행하는 경우, 연결 검증을 위해 **0.0.0.0 바인딩 + WSL 게이트웨이 IP** 경유 접속을 시도할 수 있습니다.
     - (선택) `--json`: 결과를 JSON으로 출력(기계 판독용, `--doctor`와 함께만 사용 가능)
       - 스키마(요약): `{ ok, summary, details: { godot, project? }, suggestions }`
+  - `--run-scenarios`: CI-safe 시나리오 스모크 테스트 실행 후 종료 (exit code: 0/1)
   - `--godot-path <path>`: `GODOT_PATH` 대신 명시적으로 Godot 경로 지정(우선 적용)
   - `--strict-path-validation`: Godot 경로 검증을 엄격 모드로 실행
   - `--debug`: 디버그 로그 활성화(`DEBUG=true`)
@@ -133,6 +143,13 @@ node build/index.js --doctor --json --godot-path /path/to/godot
 
 ```bash
 node build/index.js --doctor --json --project /path/to/godot-project --godot-path /path/to/godot
+```
+
+CI-safe 시나리오 실행 예시:
+
+```bash
+node build/index.js --run-scenarios --ci-safe
+# stdout에 "SCENARIOS: OK"가 포함되면 성공입니다.
 ```
 
 #### ✅ MCP 설정 자동 생성
@@ -318,6 +335,15 @@ GODOT_PATH="C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe" npm run verify:
 - `godot_editor_view_manager(action="capture_viewport")`는 **GUI 에디터**에서 가장 안정적입니다.
 - `--headless -e`로 구동된 에디터에서는 렌더 텍스처가 없어 캡처가 실패할 수 있습니다.
 
+### 4) Cleanup
+
+로컬 개발 중 누적되는 임시 산출물을 정리하려면 아래 명령을 사용하세요:
+
+```bash
+cd godot-mcp-omni
+npm run clean:tmp
+```
+
 ---
 
 ## 🛠️ MCP 도구 레퍼런스
@@ -364,6 +390,30 @@ GODOT_PATH="C:\\Path\\To\\Godot_v4.5.1-stable_win64_console.exe" npm run verify:
 | `scan`              | 파일시스템 스캔                        | - (에디터) 또는 `projectPath` (Headless)                              |
 | `reimport`          | 특정 파일 재임포트                     | `files` (배열)                                                        |
 | `auto_import_check` | 임포트 상태 갱신(스캔/필요시 리임포트) | `projectPath` (Headless), `files?`, `forceReimport?` (에디터 연결 시) |
+
+---
+
+### 🧩 Aseprite Manager (`aseprite_manager`)
+
+Aseprite CLI 기반으로 스프라이트/스프라이트시트 export를 수행하고, (옵션) Godot 임포트 갱신까지 처리합니다.
+
+- 출력 파일명(stem)은 항상 `A_` 접두어가 강제됩니다.
+- 외부 도구 실행이므로 `ALLOW_EXTERNAL_TOOLS=true`가 필요합니다.
+- Aseprite 경로는 `ASEPRITE_PATH`로 지정(권장)하거나, `aseprite`가 PATH에 있어야 합니다.
+- 자세한 문서: `docs/aseprite_manager.md`
+
+| 액션                                 | 설명                               | 주요 파라미터                                                 |
+| :----------------------------------- | :--------------------------------- | :------------------------------------------------------------ |
+| `doctor`                             | Aseprite CLI 탐지/지원 플래그 점검 | -                                                             |
+| `version`                            | Aseprite 버전 조회                 | -                                                             |
+| `list_tags`                          | 태그 목록 조회                     | `projectPath`, `inputFile`                                    |
+| `list_layers`                        | 레이어 목록 조회                   | `projectPath`, `inputFile`, `hierarchy?`                      |
+| `list_slices`                        | 슬라이스 목록 조회                 | `projectPath`, `inputFile`                                    |
+| `export_sheet`                       | 시트 PNG + 메타 JSON export        | `projectPath`, `inputFile`, `sheet`, `output?`, `options?`    |
+| `export_sheets_by_tags`              | 태그별 시트 분리 export            | `projectPath`, `inputFile`, `tags`, `sheet`, `output?`        |
+| `export_sheet_and_reimport`          | export_sheet 후 임포트 갱신        | `projectPath`, `inputFile`, `sheet`, `reimport?`              |
+| `export_sheets_by_tags_and_reimport` | 태그별 export 후 임포트 갱신       | `projectPath`, `inputFile`, `tags`, `sheet`, `reimport?`      |
+| `batch`                              | 여러 Aseprite 작업 배치 실행       | `projectPath`, `jobs`, `maxParallelJobs?`, `continueOnError?` |
 
 ---
 
@@ -421,13 +471,15 @@ GUI 없이 여러 작업을 한 번에 처리합니다.
 
 ## 🔧 환경 변수
 
-| 변수                  | 설명                        | 기본값      |
-| :-------------------- | :-------------------------- | :---------- |
-| `GODOT_PATH`          | Godot 실행 파일 경로        | 자동 탐지   |
-| `GODOT_MCP_TOKEN`     | 에디터 브릿지 인증 토큰     | -           |
-| `GODOT_MCP_PORT`      | 에디터 브릿지 포트          | `8765`      |
-| `GODOT_MCP_HOST`      | 에디터 브릿지 바인드 호스트 | `127.0.0.1` |
-| `ALLOW_DANGEROUS_OPS` | 위험한 작업 허용 여부       | `false`     |
+| 변수                   | 설명                                       | 기본값      |
+| :--------------------- | :----------------------------------------- | :---------- |
+| `GODOT_PATH`           | Godot 실행 파일 경로                       | 자동 탐지   |
+| `GODOT_MCP_TOKEN`      | 에디터 브릿지 인증 토큰                    | -           |
+| `GODOT_MCP_PORT`       | 에디터 브릿지 포트                         | `8765`      |
+| `GODOT_MCP_HOST`       | 에디터 브릿지 바인드 호스트                | `127.0.0.1` |
+| `ALLOW_EXTERNAL_TOOLS` | 외부 도구 실행 허용(Aseprite/HTTP 등)      | `false`     |
+| `ASEPRITE_PATH`        | Aseprite 설치 디렉터리 또는 실행 파일 경로 | 자동 탐지   |
+| `ALLOW_DANGEROUS_OPS`  | 위험한 작업 허용 여부                      | `false`     |
 
 ---
 

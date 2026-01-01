@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/godot-mcp-omni/workflow.schema.json",
+  "title": "godot-mcp-omni workflow schema (schemaVersion=1)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference used by editors/validators."
+    },
+    "schemaVersion": {
+      "const": 1,
+      "description": "Workflow schema version (must be 1)."
+    },
+    "projectPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional project path used for $PROJECT_PATH substitution."
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expectOk": {
+            "type": "boolean"
+          }
+        },
+        "required": ["tool"]
+      }
+    }
+  },
+  "required": ["schemaVersion", "steps"]
+}

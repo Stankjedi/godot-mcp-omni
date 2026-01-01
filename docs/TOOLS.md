@@ -5,7 +5,7 @@ This document is generated from the build-time tool definition modules.
 - Source: `build/tools/definitions/*.js`
 - Generator: `scripts/generate_tools_md.js`
 
-Total tools: 48
+Total tools: 50
 
 ---
 
@@ -35,6 +35,15 @@ Export an .aseprite file to a spritesheet PNG (and optional JSON) using Aseprite
 | ------------- | ------------------------------------------- |
 | Required keys | `projectPath`, `inputPath`, `outputPngPath` |
 | Action enum   | —                                           |
+
+## `aseprite_manager`
+
+Unified Aseprite CLI tool (multi-action; safe path mapping to res://; enforces A\_ prefix for outputs).
+
+| Field         | Value                                                                                                                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Required keys | `action`                                                                                                                                                                                                                                                                   |
+| Action enum   | `doctor`, `version`, `list_tags`, `list_layers`, `list_slices`, `export_sprite`, `export_sheet`, `export_sheets_by_tags`, `apply_palette_and_export`, `scale_and_export`, `convert_color_mode`, `batch`, `export_sheet_and_reimport`, `export_sheets_by_tags_and_reimport` |
 
 ## `create_scene`
 
@@ -440,3 +449,12 @@ Stop the currently running Godot project
 | ------------- | ----- |
 | Required keys | —     |
 | Action enum   | —     |
+
+## `workflow_manager`
+
+Validate or run a workflow (a sequential list of tool calls) inside the server process.
+
+| Field         | Value             |
+| ------------- | ----------------- |
+| Required keys | `action`          |
+| Action enum   | `validate`, `run` |

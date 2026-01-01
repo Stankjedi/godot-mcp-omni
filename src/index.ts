@@ -11,8 +11,12 @@ type ParsedArgs = {
   json: boolean;
   printMcpConfig: boolean;
   projectPath?: string;
+  runScenarios: boolean;
+  runWorkflowPath?: string;
+  workflowProjectPath?: string;
   godotPath?: string;
   strictPathValidation: boolean;
+  ciSafe: boolean;
   debug: boolean;
 };
 
@@ -30,6 +34,10 @@ function usage() {
     '  --doctor                    Run environment/project checks and exit',
     '  --json                      Print doctor results as JSON (doctor-only)',
     '  --project <path>            Project path for --doctor checks (optional)',
+    '  --run-scenarios             Run the CI-safe scenario suite and exit',
+    '  --run-workflow <path>       Run a workflow JSON and exit',
+    '  --workflow-project <path>   Override $PROJECT_PATH for --run-workflow',
+    '  --ci-safe                   Workflow/scenarios: force GODOT_PATH=""',
     '  --godot-path <path>         Override Godot executable path',
     '  --strict-path-validation    Enable strict Godot path validation',
     '  --debug                     Enable debug logs (sets DEBUG=true)',
@@ -49,8 +57,12 @@ function parseArgs(argv: string[]): ParsedArgs {
   let json = false;
   let printMcpConfig = false;
   let projectPath: string | undefined;
+  let runScenarios = false;
+  let runWorkflowPath: string | undefined;
+  let workflowProjectPath: string | undefined;
   let godotPath: string | undefined;
   let strictPathValidation = false;
+  let ciSafe = false;
   let debug = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -83,12 +95,34 @@ function parseArgs(argv: string[]): ParsedArgs {
       strictPathValidation = true;
       continue;
     }
+    if (a === '--ci-safe') {
+      ciSafe = true;
+      continue;
+    }
     if (a === '--godot-path') {
       const value = args[i + 1];
       if (!value || value.startsWith('-')) {
         throw new Error(`Missing value for --godot-path\n\n${usage()}`);
       }
       godotPath = value;
+      i += 1;
+      continue;
+    }
+    if (a === '--run-workflow') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --run-workflow\n\n${usage()}`);
+      }
+      runWorkflowPath = value;
+      i += 1;
+      continue;
+    }
+    if (a === '--workflow-project') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --workflow-project\n\n${usage()}`);
+      }
+      workflowProjectPath = value;
       i += 1;
       continue;
     }
@@ -99,6 +133,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       projectPath = value;
       i += 1;
+      continue;
+    }
+    if (a === '--run-scenarios') {
+      runScenarios = true;
       continue;
     }
 
@@ -112,8 +150,12 @@ function parseArgs(argv: string[]): ParsedArgs {
     json,
     printMcpConfig,
     projectPath,
+    runScenarios,
+    runWorkflowPath,
+    workflowProjectPath,
     godotPath,
     strictPathValidation,
+    ciSafe,
     debug,
   };
 }
@@ -185,10 +227,83 @@ async function main() {
     return;
   }
 
+  if (parsed.ciSafe && !parsed.runWorkflowPath && !parsed.runScenarios) {
+    console.error(
+      `--ci-safe is only supported with --run-workflow or --run-scenarios\n\n${usage()}`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  if (parsed.workflowProjectPath && !parsed.runWorkflowPath) {
+    console.error(
+      `--workflow-project is only supported with --run-workflow\n\n${usage()}`,
+    );
+    process.exit(1);
+    return;
+  }
+
   if (parsed.json && !parsed.doctor) {
     console.error(`--json is only supported with --doctor\n\n${usage()}`);
     process.exit(1);
     return;
+  }
+
+  if (parsed.runScenarios) {
+    if (
+      parsed.doctor ||
+      parsed.json ||
+      parsed.printMcpConfig ||
+      parsed.runWorkflowPath
+    ) {
+      console.error(
+        `--run-scenarios cannot be combined with --doctor/--json/--print-mcp-config/--run-workflow\n\n${usage()}`,
+      );
+      process.exit(1);
+      return;
+    }
+
+    try {
+      const { runScenariosCli } = await import('./scenarios/cli_runner.js');
+      const result = await runScenariosCli({
+        ciSafe: parsed.ciSafe,
+        godotPath: parsed.godotPath,
+      });
+      process.exit(result.ok ? 0 : 1);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[SCENARIOS] ${message}`);
+      process.exit(1);
+      return;
+    }
+  }
+
+  if (parsed.runWorkflowPath) {
+    if (parsed.doctor || parsed.json || parsed.printMcpConfig) {
+      console.error(
+        `--run-workflow cannot be combined with --doctor/--json/--print-mcp-config\n\n${usage()}`,
+      );
+      process.exit(1);
+      return;
+    }
+
+    try {
+      const { runWorkflowCli } = await import('./workflow/cli_runner.js');
+      const result = await runWorkflowCli({
+        workflowPath: parsed.runWorkflowPath,
+        projectPath: parsed.workflowProjectPath,
+        godotPath: parsed.godotPath,
+        ciSafe: parsed.ciSafe,
+      });
+      process.exit(result.ok ? 0 : 1);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[WORKFLOW] ${message}`);
+      process.exit(1);
+      return;
+    }
   }
 
   if (parsed.doctor) {

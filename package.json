@@ -7,7 +7,9 @@
     "godot-mcp-omni": "./build/index.js"
   },
   "files": [
-    "build"
+    "build",
+    "scripts/workflow.schema.json",
+    "scripts/workflow_example.json"
   ],
   "scripts": {
     "build": "tsc && node scripts/build.js",
@@ -21,12 +23,20 @@
     "verify:all": "npm test && npm run verify:safety",
     "verify:devplan": "node ../devplan/scripts/check_devplan_drift.mjs --check && node ../devplan/scripts/check_prompt_english_only.mjs --check",
     "verify:examples": "npm run verify:readme && npm run verify:sprite",
-    "verify:scenarios": "node scripts/run_mcp_scenarios.js --ci-safe",
+    "verify:scenarios": "node scripts/run_mcp_scenarios.js --ci-safe --no-report",
+    "scenarios:report": "node scripts/run_mcp_scenarios.js --ci-safe --out-dir ../devplan",
+    "clean:tmp": "node scripts/cleanup_tmp.js",
     "workflow:run": "npm run build && node scripts/run_workflow.js",
     "docs:tools": "npm run build && node scripts/generate_tools_md.js",
     "verify:tools-doc": "npm run docs:tools -- --check",
-    "verify:full": "npm run verify:all && npm run verify:mcp && npm run verify:examples",
-    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
+    "verify:ci": "npm run lint && npm run format:check && node ../devplan/scripts/check_devplan_drift.mjs --check && node ../devplan/scripts/check_prompt_english_only.mjs --check && node ../devplan/scripts/check_repo_secrets.mjs --check && node ../devplan/scripts/check_devplan_consistency.mjs --check && npm run build && node scripts/generate_tools_md.js --check && npm run test:no-build && node build/verify_safety.js && npm run verify:scenarios",
+    "verify:full": "npm run lint && npm run format:check && npm run verify:all && npm run verify:mcp && npm run verify:examples",
+    "test": "npm run build && npm run test:unit && npm run test:e2e",
+    "test:no-build": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test --test-concurrency=4 test/unit/*.test.mjs",
+    "test:e2e:parallel": "node --test --test-concurrency=4 test/e2e/parallel/*.test.mjs",
+    "test:e2e:serial": "node --test --test-concurrency=1 test/e2e/serial/*.test.mjs",
+    "test:e2e": "npm run test:e2e:parallel && npm run test:e2e:serial",
     "test:with-godot": "node scripts/run_with_godot.js npm test",
     "demo:editor": "npm run build && node build/demo_editor.js",
     "demo:idle-game": "npm run build && node scripts/demo_idle_game_mcp.js",

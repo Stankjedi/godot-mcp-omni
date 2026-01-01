@@ -19,11 +19,13 @@ import { MCP_SERVER_INFO } from './server_info.js';
 import { createEditorToolHandlers } from './tools/editor.js';
 import { createHeadlessToolHandlers } from './tools/headless.js';
 import { createAsepriteToolHandlers } from './tools/aseprite.js';
+import { createAsepriteManagerToolHandlers } from './tools/aseprite_manager.js';
 import { createMacroManagerToolHandlers } from './tools/macro_manager.js';
 import { createPixelToolHandlers } from './tools/pixel.js';
 import { createPixelManagerToolHandlers } from './tools/pixel_manager.js';
 import { createProjectToolHandlers } from './tools/project.js';
 import { createUnifiedToolHandlers } from './tools/unified.js';
+import { createWorkflowManagerToolHandlers } from './tools/workflow_manager.js';
 
 import { ASEPRITE_TOOL_DEFINITIONS } from './tools/definitions/aseprite_tools.js';
 import { EDITOR_RPC_TOOL_DEFINITIONS } from './tools/definitions/editor_rpc_tools.js';
@@ -33,6 +35,7 @@ import { PIXEL_MANAGER_TOOL_DEFINITIONS } from './tools/definitions/pixel_manage
 import { PIXEL_TOOL_DEFINITIONS } from './tools/definitions/pixel_tools.js';
 import { PROJECT_TOOL_DEFINITIONS } from './tools/definitions/project_tools.js';
 import { UNIFIED_TOOL_DEFINITIONS } from './tools/definitions/unified_tools.js';
+import { WORKFLOW_TOOL_DEFINITIONS } from './tools/definitions/workflow_tools.js';
 
 import type { EditorBridgeClient } from './editor_bridge_client.js';
 import type { ServerContext } from './tools/context.js';
@@ -87,6 +90,7 @@ const TOOL_DEFINITIONS: ToolDefinition[] = [
   ...PIXEL_MANAGER_TOOL_DEFINITIONS,
   ...MACRO_TOOL_DEFINITIONS,
   ...PIXEL_TOOL_DEFINITIONS,
+  ...WORKFLOW_TOOL_DEFINITIONS,
 ];
 
 export class GodotMcpOmniServer {
@@ -268,13 +272,18 @@ export class GodotMcpOmniServer {
     const headlessHandlers = createHeadlessToolHandlers(ctx);
     const editorHandlers = createEditorToolHandlers(ctx);
     const projectHandlers = createProjectToolHandlers(ctx);
-    const asepriteHandlers = createAsepriteToolHandlers(ctx);
 
     const unifiedHandlers = createUnifiedToolHandlers(ctx, {
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,
     });
+
+    const asepriteHandlers = createAsepriteToolHandlers(ctx);
+    const asepriteManagerHandlers = createAsepriteManagerToolHandlers(
+      ctx,
+      unifiedHandlers,
+    );
 
     const pixelHandlers = createPixelToolHandlers(ctx, {
       ...headlessHandlers,
@@ -300,15 +309,23 @@ export class GodotMcpOmniServer {
       ...pixelManagerHandlers,
     });
 
+    const workflowManagerHandlers = createWorkflowManagerToolHandlers(ctx, {
+      dispatchTool: async (tool, args) => await this.dispatchTool(tool, args),
+      normalizeParameters: (p) => this.normalizeParameters(p),
+      listTools: () => TOOL_DEFINITIONS,
+    });
+
     return {
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,
       ...asepriteHandlers,
+      ...asepriteManagerHandlers,
       ...unifiedHandlers,
       ...pixelHandlers,
       ...pixelManagerHandlers,
       ...macroManagerHandlers,
+      ...workflowManagerHandlers,
     };
   }
 

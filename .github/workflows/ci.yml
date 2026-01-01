@@ -38,11 +38,20 @@ jobs:
       - name: Prompt.md lint (English-only)
         run: node ../devplan/scripts/check_prompt_english_only.mjs --check
 
-      - name: Verify tools doc (drift check)
-        run: npm run verify:tools-doc
+      - name: Repo secrets guard (token files)
+        run: node ../devplan/scripts/check_repo_secrets.mjs --check
 
-      - name: Verify (CI-safe)
-        run: npm run verify:all
+      - name: Build (once)
+        run: npm run build
+
+      - name: Verify tools doc (drift check)
+        run: node scripts/generate_tools_md.js --check
+
+      - name: Test (CI-safe, no rebuild)
+        run: npm run test:no-build
+
+      - name: Verify safety (no rebuild)
+        run: node build/verify_safety.js
 
       - name: Verify scenarios (CI-safe)
         run: npm run verify:scenarios

@@ -1,0 +1,62 @@
+{
+  "$schema": "./workflow.schema.json",
+  "schemaVersion": 1,
+  "projectPath": "../test_project",
+  "steps": [
+    {
+      "id": "ASE-001",
+      "title": "List tools",
+      "tool": "tools/list",
+      "args": {}
+    },
+    {
+      "id": "ASE-002",
+      "title": "aseprite_manager doctor (checks Aseprite availability)",
+      "tool": "aseprite_manager",
+      "args": {
+        "action": "doctor",
+        "options": {
+          "timeoutMs": 60000,
+          "verbose": true
+        }
+      }
+    },
+    {
+      "id": "ASE-003",
+      "title": "aseprite_manager list_tags (update inputFile to your .aseprite)",
+      "tool": "aseprite_manager",
+      "args": {
+        "action": "list_tags",
+        "projectPath": "$PROJECT_PATH",
+        "inputFile": "res://art/REPLACE_ME.aseprite",
+        "options": {
+          "timeoutMs": 60000,
+          "verbose": true
+        }
+      }
+    },
+    {
+      "id": "ASE-004",
+      "title": "aseprite_manager export_sheet (preview=true, no disk writes)",
+      "tool": "aseprite_manager",
+      "args": {
+        "action": "export_sheet",
+        "projectPath": "$PROJECT_PATH",
+        "inputFile": "res://art/REPLACE_ME.aseprite",
+        "options": {
+          "timeoutMs": 60000,
+          "preview": true
+        },
+        "output": {
+          "outputDir": "res://",
+          "baseName": "workflow_preview",
+          "overwrite": false
+        },
+        "sheet": {
+          "sheetType": "packed",
+          "format": "json-array"
+        }
+      }
+    }
+  ]
+}

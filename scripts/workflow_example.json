@@ -1,39 +1,20 @@
 {
+  "$schema": "./workflow.schema.json",
   "schemaVersion": 1,
-  "projectPath": "../game",
   "steps": [
     {
-      "id": "WF-001",
+      "id": "EX-001",
       "title": "List tools",
       "tool": "tools/list",
-      "args": {},
-      "expectOk": true
+      "args": {}
     },
     {
-      "id": "WF-002",
-      "title": "Project preflight",
-      "tool": "godot_preflight",
-      "args": { "projectPath": "$PROJECT_PATH" },
-      "expectOk": true
-    },
-    {
-      "id": "WF-003",
-      "title": "Doctor report",
-      "tool": "godot_workspace_manager",
-      "args": { "action": "doctor_report", "projectPath": "$PROJECT_PATH" },
-      "expectOk": true
-    },
-    {
-      "id": "WF-004",
-      "title": "Headless smoke test (non-strict example)",
-      "tool": "godot_workspace_manager",
+      "id": "EX-002",
+      "title": "macro_manager list_macros (CI-safe)",
+      "tool": "macro_manager",
       "args": {
-        "action": "smoke_test",
-        "projectPath": "$PROJECT_PATH",
-        "waitMs": 1500,
-        "failOnIssues": false
-      },
-      "expectOk": true
+        "action": "list_macros"
+      }
     }
   ]
 }
