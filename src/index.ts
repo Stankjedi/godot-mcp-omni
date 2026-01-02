@@ -4,14 +4,22 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+type CliMode =
+  | 'server'
+  | 'doctor'
+  | 'listTools'
+  | 'listToolsJson'
+  | 'printMcpConfig'
+  | 'runScenarios'
+  | 'runWorkflow';
+
 type ParsedArgs = {
   showHelp: boolean;
   showVersion: boolean;
-  doctor: boolean;
+  mode: CliMode;
+  doctorReadOnly: boolean;
   json: boolean;
-  printMcpConfig: boolean;
   projectPath?: string;
-  runScenarios: boolean;
   runWorkflowPath?: string;
   workflowProjectPath?: string;
   godotPath?: string;
@@ -32,6 +40,7 @@ function usage() {
     '  --help                      Show this help and exit',
     '  --version                   Print version and exit',
     '  --doctor                    Run environment/project checks and exit',
+    '  --doctor-readonly           With --doctor: do not modify project files',
     '  --json                      Print doctor results as JSON (doctor-only)',
     '  --project <path>            Project path for --doctor checks (optional)',
     '  --run-scenarios             Run the CI-safe scenario suite and exit',
@@ -42,6 +51,8 @@ function usage() {
     '  --strict-path-validation    Enable strict Godot path validation',
     '  --debug                     Enable debug logs (sets DEBUG=true)',
     '  --print-mcp-config          Print MCP server config JSON and exit',
+    '  --list-tools                Print available MCP tools and exit',
+    '  --list-tools-json           Print available MCP tools as JSON and exit',
     '',
     'Notes:',
     '  - Without options, the server starts and communicates over stdin/stdout.',
@@ -54,6 +65,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   let showHelp = false;
   let showVersion = false;
   let doctor = false;
+  let listTools = false;
+  let listToolsJson = false;
+  let doctorReadOnly = false;
   let json = false;
   let printMcpConfig = false;
   let projectPath: string | undefined;
@@ -79,6 +93,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       doctor = true;
       continue;
     }
+    if (a === '--doctor-readonly') {
+      doctorReadOnly = true;
+      continue;
+    }
     if (a === '--json') {
       json = true;
       continue;
@@ -89,6 +107,14 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
     if (a === '--print-mcp-config') {
       printMcpConfig = true;
+      continue;
+    }
+    if (a === '--list-tools') {
+      listTools = true;
+      continue;
+    }
+    if (a === '--list-tools-json') {
+      listToolsJson = true;
       continue;
     }
     if (a === '--strict-path-validation') {
@@ -143,14 +169,213 @@ function parseArgs(argv: string[]): ParsedArgs {
     throw new Error(`Unknown argument: ${a}\n\n${usage()}`);
   }
 
+  if (!showHelp && !showVersion) {
+    if (
+      doctorReadOnly &&
+      (!doctor ||
+        listTools ||
+        listToolsJson ||
+        printMcpConfig ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe)
+    ) {
+      throw new Error(
+        `--doctor-readonly is only supported with --doctor (and optional --json/--project/--godot-path/--strict-path-validation/--debug)\n\n${usage()}`,
+      );
+    }
+
+    if (listToolsJson) {
+      if (
+        listTools ||
+        doctor ||
+        doctorReadOnly ||
+        json ||
+        printMcpConfig ||
+        projectPath ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe ||
+        godotPath ||
+        strictPathValidation ||
+        debug
+      ) {
+        throw new Error(
+          `--list-tools-json cannot be combined with ` +
+            `--list-tools/--doctor/--json/--print-mcp-config/--project/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation/--debug\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'listToolsJson',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (listTools) {
+      if (
+        doctor ||
+        doctorReadOnly ||
+        listToolsJson ||
+        json ||
+        printMcpConfig ||
+        projectPath ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe ||
+        godotPath ||
+        strictPathValidation
+      ) {
+        throw new Error(
+          `--list-tools cannot be combined with ` +
+            `--doctor/--json/--print-mcp-config/--project/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'listTools',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (printMcpConfig) {
+      if (doctor || runScenarios || runWorkflowPath) {
+        throw new Error(
+          `--print-mcp-config cannot be combined with ` +
+            `--doctor/--run-scenarios/--run-workflow\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'printMcpConfig',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (projectPath && !doctor) {
+      throw new Error(`--project is only supported with --doctor\n\n${usage()}`);
+    }
+
+    if (ciSafe && !runWorkflowPath && !runScenarios) {
+      throw new Error(
+        `--ci-safe is only supported with --run-workflow or --run-scenarios\n\n${usage()}`,
+      );
+    }
+
+    if (workflowProjectPath && !runWorkflowPath) {
+      throw new Error(
+        `--workflow-project is only supported with --run-workflow\n\n${usage()}`,
+      );
+    }
+
+    if (json && !doctor) {
+      throw new Error(`--json is only supported with --doctor\n\n${usage()}`);
+    }
+
+    if (runScenarios) {
+      if (doctor || json || printMcpConfig || runWorkflowPath) {
+        throw new Error(
+          `--run-scenarios cannot be combined with --doctor/--json/--print-mcp-config/--run-workflow\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'runScenarios',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (runWorkflowPath) {
+      if (doctor || json || printMcpConfig) {
+        throw new Error(
+          `--run-workflow cannot be combined with --doctor/--json/--print-mcp-config\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'runWorkflow',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (doctor) {
+      return {
+        showHelp,
+        showVersion,
+        mode: 'doctor',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+  }
+
   return {
     showHelp,
     showVersion,
-    doctor,
+    doctorReadOnly,
+    mode: 'server',
     json,
-    printMcpConfig,
     projectPath,
-    runScenarios,
     runWorkflowPath,
     workflowProjectPath,
     godotPath,
@@ -205,135 +430,138 @@ async function main() {
 
   if (parsed.debug) process.env.DEBUG = 'true';
 
-  if (parsed.printMcpConfig) {
-    const __filename = fileURLToPath(import.meta.url);
-    const serverPath = path.resolve(__filename);
-    const effectiveGodotPath = parsed.godotPath ?? process.env.GODOT_PATH;
-    const config: Record<string, unknown> = {
-      command: 'node',
-      args: [serverPath],
-    };
-    if (effectiveGodotPath) {
-      config.env = { GODOT_PATH: effectiveGodotPath };
-    }
-    console.log(JSON.stringify(config, null, 2));
-    process.exit(0);
-    return;
-  }
+  switch (parsed.mode) {
+    case 'listToolsJson': {
+      const { ALL_TOOL_DEFINITIONS, TOOL_DEFINITION_GROUPS } =
+        await import('./tools/definitions/all_tools.js');
 
-  if (parsed.projectPath && !parsed.doctor) {
-    console.error(`--project is only supported with --doctor\n\n${usage()}`);
-    process.exit(1);
-    return;
-  }
+      const tools = [...ALL_TOOL_DEFINITIONS]
+        .map((t) => t.name)
+        .sort((a, b) => a.localeCompare(b));
 
-  if (parsed.ciSafe && !parsed.runWorkflowPath && !parsed.runScenarios) {
-    console.error(
-      `--ci-safe is only supported with --run-workflow or --run-scenarios\n\n${usage()}`,
-    );
-    process.exit(1);
-    return;
-  }
+      const groups: Record<string, string[]> = {};
+      for (const groupName of Object.keys(TOOL_DEFINITION_GROUPS).sort(
+        (a, b) => a.localeCompare(b),
+      )) {
+        groups[groupName] = [...TOOL_DEFINITION_GROUPS[groupName]]
+          .map((t) => t.name)
+          .sort((a, b) => a.localeCompare(b));
+      }
 
-  if (parsed.workflowProjectPath && !parsed.runWorkflowPath) {
-    console.error(
-      `--workflow-project is only supported with --run-workflow\n\n${usage()}`,
-    );
-    process.exit(1);
-    return;
-  }
-
-  if (parsed.json && !parsed.doctor) {
-    console.error(`--json is only supported with --doctor\n\n${usage()}`);
-    process.exit(1);
-    return;
-  }
-
-  if (parsed.runScenarios) {
-    if (
-      parsed.doctor ||
-      parsed.json ||
-      parsed.printMcpConfig ||
-      parsed.runWorkflowPath
-    ) {
-      console.error(
-        `--run-scenarios cannot be combined with --doctor/--json/--print-mcp-config/--run-workflow\n\n${usage()}`,
-      );
-      process.exit(1);
+      console.log(JSON.stringify({ total: tools.length, tools, groups }));
+      process.exit(0);
       return;
     }
+    case 'listTools': {
+      const { ALL_TOOL_DEFINITIONS, TOOL_DEFINITION_GROUPS } =
+        await import('./tools/definitions/all_tools.js');
 
-    try {
-      const { runScenariosCli } = await import('./scenarios/cli_runner.js');
-      const result = await runScenariosCli({
-        ciSafe: parsed.ciSafe,
+      const groupNames = Object.keys(TOOL_DEFINITION_GROUPS).sort((a, b) =>
+        a.localeCompare(b),
+      );
+      console.log(`Total tools: ${ALL_TOOL_DEFINITIONS.length}`);
+
+      for (const group of groupNames) {
+        const tools = [...TOOL_DEFINITION_GROUPS[group]].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+        console.log('');
+        console.log(`[${group}] (${tools.length})`);
+        for (const tool of tools) {
+          console.log(`- ${tool.name}`);
+        }
+      }
+
+      process.exit(0);
+      return;
+    }
+    case 'printMcpConfig': {
+      const __filename = fileURLToPath(import.meta.url);
+      const serverPath = path.resolve(__filename);
+      const effectiveGodotPath = parsed.godotPath ?? process.env.GODOT_PATH;
+      const config: Record<string, unknown> = {
+        command: 'node',
+        args: [serverPath],
+      };
+      if (effectiveGodotPath) {
+        config.env = { GODOT_PATH: effectiveGodotPath };
+      }
+      console.log(JSON.stringify(config, null, 2));
+      process.exit(0);
+      return;
+    }
+    case 'runScenarios': {
+      try {
+        const { runScenariosCli } = await import('./scenarios/cli_runner.js');
+        const result = await runScenariosCli({
+          ciSafe: parsed.ciSafe,
+          godotPath: parsed.godotPath,
+        });
+        process.exit(result.ok ? 0 : 1);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[SCENARIOS] ${message}`);
+        process.exit(1);
+        return;
+      }
+    }
+    case 'runWorkflow': {
+      if (!parsed.runWorkflowPath) {
+        console.error(`Missing value for --run-workflow\n\n${usage()}`);
+        process.exit(1);
+        return;
+      }
+
+      try {
+        const { runWorkflowCli } = await import('./workflow/cli_runner.js');
+        const result = await runWorkflowCli({
+          workflowPath: parsed.runWorkflowPath,
+          projectPath: parsed.workflowProjectPath,
+          godotPath: parsed.godotPath,
+          ciSafe: parsed.ciSafe,
+        });
+        process.exit(result.ok ? 0 : 1);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[WORKFLOW] ${message}`);
+        process.exit(1);
+        return;
+      }
+    }
+    case 'doctor': {
+      const { formatDoctorReport, runDoctor } = await import('./doctor.js');
+      const result = await runDoctor({
+        projectPath: parsed.projectPath,
         godotPath: parsed.godotPath,
+        strictPathValidation: parsed.strictPathValidation,
+        readOnly: parsed.doctorReadOnly,
       });
+      if (parsed.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatDoctorReport(result));
+      }
       process.exit(result.ok ? 0 : 1);
       return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[SCENARIOS] ${message}`);
-      process.exit(1);
-      return;
     }
-  }
-
-  if (parsed.runWorkflowPath) {
-    if (parsed.doctor || parsed.json || parsed.printMcpConfig) {
-      console.error(
-        `--run-workflow cannot be combined with --doctor/--json/--print-mcp-config\n\n${usage()}`,
-      );
-      process.exit(1);
-      return;
-    }
-
-    try {
-      const { runWorkflowCli } = await import('./workflow/cli_runner.js');
-      const result = await runWorkflowCli({
-        workflowPath: parsed.runWorkflowPath,
-        projectPath: parsed.workflowProjectPath,
+    case 'server': {
+      const { GodotMcpOmniServer } = await import('./server.js');
+      const server = new GodotMcpOmniServer({
         godotPath: parsed.godotPath,
-        ciSafe: parsed.ciSafe,
+        strictPathValidation: parsed.strictPathValidation,
       });
-      process.exit(result.ok ? 0 : 1);
-      return;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[WORKFLOW] ${message}`);
-      process.exit(1);
+
+      try {
+        await server.run();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[SERVER] Failed to start:', message);
+        process.exit(1);
+      }
       return;
     }
-  }
-
-  if (parsed.doctor) {
-    const { formatDoctorReport, runDoctor } = await import('./doctor.js');
-    const result = await runDoctor({
-      projectPath: parsed.projectPath,
-      godotPath: parsed.godotPath,
-      strictPathValidation: parsed.strictPathValidation,
-    });
-    if (parsed.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(formatDoctorReport(result));
-    }
-    process.exit(result.ok ? 0 : 1);
-    return;
-  }
-
-  const { GodotMcpOmniServer } = await import('./server.js');
-  const server = new GodotMcpOmniServer({
-    godotPath: parsed.godotPath,
-    strictPathValidation: parsed.strictPathValidation,
-  });
-
-  try {
-    await server.run();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[SERVER] Failed to start:', message);
-    process.exit(1);
   }
 }
 

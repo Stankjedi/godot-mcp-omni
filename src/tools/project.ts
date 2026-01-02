@@ -47,6 +47,53 @@ const DEFAULT_LIST_PROJECTS_IGNORE = [
 const DEFAULT_BRIDGE_PORT = 8765;
 const DEFAULT_BRIDGE_HOST = '127.0.0.1';
 
+function normalizeProjectPathForCompare(p: string): string {
+  const trimmed = p.trim();
+  if (!trimmed) return '';
+  const looksWindows =
+    /^[a-zA-Z]:[\\/]/u.test(trimmed) || trimmed.includes('\\');
+  const normalized = looksWindows
+    ? path.win32.resolve(trimmed)
+    : path.resolve(trimmed);
+  return looksWindows ? normalized.toLowerCase() : normalized;
+}
+
+function isWslEnvironment(): boolean {
+  return (
+    process.platform === 'linux' &&
+    (typeof process.env.WSL_DISTRO_NAME === 'string' ||
+      typeof process.env.WSL_INTEROP === 'string')
+  );
+}
+
+function readWslGatewayIp(): string | undefined {
+  if (!isWslEnvironment()) return undefined;
+  try {
+    const route = readFileSync('/proc/net/route', 'utf8');
+    const lines = route.split(/\r?\n/u);
+    for (let i = 1; i < lines.length; i += 1) {
+      const line = lines[i]?.trim();
+      if (!line) continue;
+      const cols = line.split(/\s+/u);
+      if (cols.length < 3) continue;
+      if (cols[1] !== '00000000') continue;
+      const hex = cols[2];
+      if (!/^[0-9a-fA-F]+$/u.test(hex)) continue;
+      const num = (Number.parseInt(hex, 16) >>> 0) | 0;
+      const gatewayIp = [
+        num & 0xff,
+        (num >>> 8) & 0xff,
+        (num >>> 16) & 0xff,
+        (num >>> 24) & 0xff,
+      ].join('.');
+      if (gatewayIp !== '0.0.0.0') return gatewayIp;
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 async function readOptionalTextFile(filePath: string): Promise<string | null> {
   try {
     const raw = await fs.readFile(filePath, 'utf8');
@@ -581,15 +628,80 @@ export function createProjectToolHandlers(
       try {
         ctx.assertValidProject(projectPath);
 
+        const targetProject = normalizeProjectPathForCompare(projectPath);
+        const existingClient = ctx.getEditorClient();
+        const existingProjectPath = ctx.getEditorProjectPath();
+        if (
+          existingClient &&
+          existingClient.isConnected &&
+          typeof existingProjectPath === 'string'
+        ) {
+          const currentProject =
+            normalizeProjectPathForCompare(existingProjectPath);
+          if (currentProject && currentProject === targetProject) {
+            ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
+            return {
+              ok: true,
+              summary: 'Already connected to editor bridge; skipping launch',
+              details: {
+                projectPath,
+                alreadyRunning: true,
+                connected: true,
+              },
+            };
+          }
+        }
+
+        const launchInfo = ctx.getEditorLaunchInfo();
+        const launchWindowMs = 120_000;
+        const launchedRecently =
+          Boolean(launchInfo) &&
+          normalizeProjectPathForCompare(launchInfo?.projectPath ?? '') ===
+            targetProject &&
+          typeof launchInfo?.ts === 'number' &&
+          Date.now() - (launchInfo?.ts ?? 0) < launchWindowMs;
+
+        if (launchedRecently) {
+          return {
+            ok: true,
+            summary:
+              'Godot editor launch already requested recently; skipping duplicate launch',
+            details: {
+              projectPath,
+              launching: true,
+              suggestions: [
+                'Wait for the editor to finish starting up, then call godot_workspace_manager(action="connect").',
+                'If startup is stuck, close the extra editor windows and retry.',
+              ],
+            },
+          };
+        }
+
         const lockPath = path.join(projectPath, '.godot_mcp', 'bridge.lock');
         if (existsSync(lockPath)) {
-          const host =
+          const rawHost =
             hostArg ??
             normalizeOptionalString(process.env.GODOT_MCP_HOST) ??
             (await readOptionalTextFile(
               path.join(projectPath, '.godot_mcp_host'),
             )) ??
             DEFAULT_BRIDGE_HOST;
+          const explicitHost = Boolean(hostArg);
+          const isBindAll = rawHost === '0.0.0.0' || rawHost === '::';
+          const baseHost =
+            rawHost && !isBindAll ? rawHost : DEFAULT_BRIDGE_HOST;
+          const hostCandidates = [baseHost];
+
+          const godotPathHint = (godotPathArg ?? process.env.GODOT_PATH ?? '')
+            .trim()
+            .toLowerCase();
+          if (!(explicitHost && !isBindAll) && godotPathHint.endsWith('.exe')) {
+            const gatewayIp = readWslGatewayIp();
+            if (gatewayIp && !hostCandidates.includes(gatewayIp)) {
+              hostCandidates.unshift(gatewayIp);
+            }
+          }
+
           const envPortRaw = process.env.GODOT_MCP_PORT?.trim() ?? '';
           const envPort = envPortRaw ? Number.parseInt(envPortRaw, 10) : NaN;
           const portToCheck =
@@ -604,12 +716,17 @@ export function createProjectToolHandlers(
                     10,
                   ) || DEFAULT_BRIDGE_PORT;
 
-          const reachable =
-            Number.isInteger(portToCheck) && portToCheck > 0
-              ? await isTcpPortOpen(host, portToCheck)
-              : false;
+          let reachableHost: string | undefined;
+          if (Number.isInteger(portToCheck) && portToCheck > 0) {
+            for (const candidate of hostCandidates) {
+              if (await isTcpPortOpen(candidate, portToCheck)) {
+                reachableHost = candidate;
+                break;
+              }
+            }
+          }
 
-          if (reachable) {
+          if (reachableHost) {
             ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
             return {
               ok: true,
@@ -618,7 +735,7 @@ export function createProjectToolHandlers(
               details: {
                 projectPath,
                 lockPath,
-                host,
+                host: reachableHost,
                 port: portToCheck,
                 alreadyRunning: true,
                 suggestions: [
@@ -632,8 +749,7 @@ export function createProjectToolHandlers(
         const godotPath = await ctx.ensureGodotPath(godotPathArg);
 
         const shouldWriteBridgeConfig =
-          process.platform !== 'win32' &&
-          godotPath.trim().toLowerCase().endsWith('.exe');
+          isWslEnvironment() && godotPath.trim().toLowerCase().endsWith('.exe');
         if (shouldWriteBridgeConfig) {
           const envPortRaw = process.env.GODOT_MCP_PORT?.trim() ?? '';
           const envPort = envPortRaw ? Number.parseInt(envPortRaw, 10) : NaN;
@@ -655,39 +771,18 @@ export function createProjectToolHandlers(
             );
           }
 
-          try {
-            const route = readFileSync('/proc/net/route', 'utf8');
-            const lines = route.split(/\r?\n/u);
-            for (let i = 1; i < lines.length; i += 1) {
-              const line = lines[i]?.trim();
-              if (!line) continue;
-              const cols = line.split(/\s+/u);
-              if (cols.length < 3) continue;
-              if (cols[1] !== '00000000') continue;
-              const hex = cols[2];
-              if (!/^[0-9a-fA-F]+$/u.test(hex)) continue;
-              const num = (Number.parseInt(hex, 16) >>> 0) as number;
-              const gatewayIp = [
-                num & 0xff,
-                (num >>> 8) & 0xff,
-                (num >>> 16) & 0xff,
-                (num >>> 24) & 0xff,
-              ].join('.');
-              if (gatewayIp !== '0.0.0.0') {
-                await fs.writeFile(
-                  path.join(projectPath, '.godot_mcp_host'),
-                  gatewayIp,
-                  'utf8',
-                );
-                break;
-              }
-            }
-          } catch {
-            // Best-effort only; default stays 127.0.0.1.
+          const gatewayIp = readWslGatewayIp();
+          if (gatewayIp) {
+            await fs.writeFile(
+              path.join(projectPath, '.godot_mcp_host'),
+              gatewayIp,
+              'utf8',
+            );
           }
         }
 
         const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
+        ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
         spawn(
           resolvedGodotPath,
           normalizeGodotArgsForHost(resolvedGodotPath, [
@@ -706,7 +801,6 @@ export function createProjectToolHandlers(
             },
           },
         ).unref();
-        ctx.setEditorLaunchInfo({ projectPath, ts: Date.now() });
         return {
           ok: true,
           summary: 'Godot editor launched',

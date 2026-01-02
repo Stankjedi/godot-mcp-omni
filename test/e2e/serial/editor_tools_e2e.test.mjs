@@ -177,7 +177,12 @@ test('Editor tools are CI-safe when not connected (no Godot required)', async ()
 test(
   'Editor tools integration (Godot required): batch + query + edit operations',
   {
-    skip: process.env.GODOT_PATH ? false : 'GODOT_PATH not set',
+    skip:
+      process.env.GODOT_MCP_LEGACY_EDITOR_E2E === 'true'
+        ? process.env.GODOT_PATH
+          ? false
+          : 'GODOT_PATH not set'
+        : 'Covered by editor_single_window_e2e.test.mjs (set GODOT_MCP_LEGACY_EDITOR_E2E=true to run legacy)',
     timeout: 120000,
   },
   async () => {

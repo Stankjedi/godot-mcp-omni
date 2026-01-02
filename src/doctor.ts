@@ -71,6 +71,7 @@ export type DoctorOptions = {
   godotPath?: string;
   projectPath?: string;
   strictPathValidation?: boolean;
+  readOnly?: boolean;
 };
 
 async function pathExists(p: string): Promise<boolean> {
@@ -419,6 +420,7 @@ async function resolveProjectDetails(
 
 async function runProjectSetupForEditorBridge(
   projectPath: string,
+  opts: { readOnly: boolean },
 ): Promise<DoctorCheckResult> {
   const absProjectPath = path.resolve(projectPath);
   const projectGodotPath = path.join(absProjectPath, 'project.godot');
@@ -434,6 +436,65 @@ async function runProjectSetupForEditorBridge(
   }
 
   const lockFileExists = await pathExists(lockFilePath);
+
+  if (opts.readOnly) {
+    const dstAddonPath = path.join(absProjectPath, 'addons', 'godot_mcp_bridge');
+    const dstPluginCfgPath = path.join(dstAddonPath, 'plugin.cfg');
+    const dstAddonOk = await pathExists(dstPluginCfgPath);
+
+    let pluginEnabled = false;
+    let enabledPlugins: string[] = [];
+    try {
+      const projectGodotText = await fs.readFile(projectGodotPath, 'utf8');
+      enabledPlugins = parseEditorPluginIds(projectGodotText);
+      pluginEnabled = enabledPlugins.includes('godot_mcp_bridge');
+    } catch {
+      // ignore; keep false
+    }
+
+    const tokenPath = path.join(absProjectPath, '.godot_mcp_token');
+    let tokenPresent = false;
+    try {
+      tokenPresent = Boolean((await fs.readFile(tokenPath, 'utf8')).trim());
+    } catch {
+      tokenPresent = false;
+    }
+
+    const needsChanges = !dstAddonOk || !pluginEnabled || !tokenPresent;
+
+    return {
+      ok: true,
+      skipped: true,
+      summary: needsChanges
+        ? 'Project setup skipped (read-only mode; changes needed)'
+        : 'Project already set up (read-only mode)',
+      details: {
+        projectPath: absProjectPath,
+        lockFileExists,
+        addonPresent: dstAddonOk,
+        pluginEnabled,
+        enabledPlugins,
+        tokenPresent,
+        tokenPath,
+        suggestions: [
+          'Read-only mode: no project files were modified.',
+          'Re-run without --doctor-readonly to apply addon/plugin/token automatically.',
+          !dstAddonOk
+            ? `Missing addon: ${dstAddonPath} (run: npm run sync:addon -- --project ${absProjectPath})`
+            : null,
+          !pluginEnabled
+            ? `Enable plugin in ${projectGodotPath}: [editor_plugins] enabled=PackedStringArray("godot_mcp_bridge")`
+            : null,
+          !tokenPresent
+            ? `Create ${tokenPath} with any random string token.`
+            : null,
+          lockFileExists
+            ? 'If the editor is running, close it before applying setup changes.'
+            : null,
+        ].filter(Boolean),
+      },
+    };
+  }
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -1261,6 +1322,7 @@ async function runMcpServerAndHeadlessChecks(args: {
 async function runEditorBridgeCheck(args: {
   projectPath: string | undefined;
   godotPath: string | null;
+  readOnly: boolean;
 }): Promise<DoctorCheckResult> {
   if (!args.projectPath) {
     return {
@@ -1534,6 +1596,22 @@ async function runEditorBridgeCheck(args: {
       };
     }
 
+    if (args.readOnly) {
+      return {
+        ok: false,
+        summary:
+          'Editor bridge lock file appears stale, but read-only mode prevents cleanup/auto-launch',
+        error: lastAttempt?.error,
+        details: {
+          lockFilePath,
+          tried: candidates,
+          lastAttempt,
+          suggestion:
+            'Delete the stale lock file manually, or re-run --doctor without --doctor-readonly to let it clean and auto-launch the editor.',
+        },
+      };
+    }
+
     // Likely stale lock file: remove and attempt auto-launch.
     try {
       await fs.rm(lockFilePath, { force: true });
@@ -1553,6 +1631,22 @@ async function runEditorBridgeCheck(args: {
         tokenSource,
         suggestions: [
           'Provide a working GODOT_PATH / --godot-path to let --doctor auto-launch the editor and verify the bridge.',
+        ],
+      },
+    };
+  }
+
+  if (args.readOnly) {
+    return {
+      ok: true,
+      skipped: true,
+      summary: 'Editor bridge auto-launch skipped (read-only mode)',
+      details: {
+        lockFilePath,
+        tokenSource,
+        suggestions: [
+          'Read-only mode: not auto-launching the editor and not writing host/port files.',
+          'Start the editor manually (or re-run --doctor without --doctor-readonly) to validate the bridge connection.',
         ],
       },
     };
@@ -1869,6 +1963,7 @@ async function runEditorBridgeCheck(args: {
 
 export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const suggestions: string[] = [];
+  const readOnly = options.readOnly === true;
 
   const godot = await resolveGodotDetails(options);
   suggestions.push(...godot.suggestions);
@@ -1879,10 +1974,16 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   if (options.projectPath) {
     const projectSetup = await runProjectSetupForEditorBridge(
       options.projectPath,
+      { readOnly },
     );
     checks.projectSetup = projectSetup;
     if (!projectSetup.ok && !projectSetup.skipped) {
       suggestions.push('Project setup for editor bridge failed.');
+    }
+    if (projectSetup.skipped && readOnly) {
+      suggestions.push(
+        'Read-only mode enabled: project setup changes were not applied.',
+      );
     }
 
     const project = await resolveProjectDetails(options.projectPath);
@@ -1916,10 +2017,16 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const editorBridge = await runEditorBridgeCheck({
     projectPath: options.projectPath,
     godotPath: godot.details.ok ? godot.details.path : null,
+    readOnly,
   });
   checks.editorBridge = editorBridge;
   if (!editorBridge.ok && !editorBridge.skipped) {
     suggestions.push('Editor bridge check failed (connect/health).');
+  }
+  if (editorBridge.skipped && readOnly) {
+    suggestions.push(
+      'Read-only mode enabled: editor bridge auto-launch may be skipped.',
+    );
   }
 
   const ok =

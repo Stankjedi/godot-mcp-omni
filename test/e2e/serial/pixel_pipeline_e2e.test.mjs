@@ -12,7 +12,7 @@ import {
   writeMinimalProject,
 } from '../helpers.mjs';
 
-async function rmrfWithRetries(targetPath, attempts = 10) {
+async function rmrfWithRetries(targetPath, attempts = 40) {
   for (let i = 0; i < attempts; i += 1) {
     try {
       fs.rmSync(targetPath, { recursive: true, force: true });
@@ -26,10 +26,12 @@ async function rmrfWithRetries(targetPath, attempts = 10) {
         'ENOTEMPTY',
         'EEXIST',
       ].includes(code);
-      if (!retryable || i === attempts - 1) throw error;
-      await new Promise((r) => setTimeout(r, 250));
+      if (!retryable) throw error;
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
+
+  // Best-effort: leave the temp dir behind if Windows is still holding locks.
 }
 
 test(

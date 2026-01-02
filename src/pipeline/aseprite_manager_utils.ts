@@ -18,10 +18,13 @@ function isInsideRoot(rootAbs: string, candidateAbs: string): boolean {
 
 function realpathSafe(p: string): string {
   // Prefer native realpath to preserve Windows drive casing when available.
-  const native = (
-    fs.realpathSync as unknown as { native?: (p: string) => string }
-  ).native;
-  return native ? native(p) : fs.realpathSync(p);
+  type RealpathSyncWithNative = typeof fs.realpathSync & {
+    native?: (p: string) => string;
+  };
+
+  const realpathSync = fs.realpathSync as RealpathSyncWithNative;
+  const native = realpathSync.native;
+  return typeof native === 'function' ? native(p) : fs.realpathSync(p);
 }
 
 function getCachedProjectRootRealpath(projectPath: string): {

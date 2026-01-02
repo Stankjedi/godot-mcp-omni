@@ -124,6 +124,8 @@ npm run build
       - 참고: `--project` 사용 시 Doctor가 프로젝트에 **브리지 애드온을 자동 동기화/활성화**하고, 필요하면 `.godot_mcp_token`을 **자동 생성**할 수 있습니다(토큰 값은 출력하지 않음).
       - 또한 가능한 경우 **headless 에디터를 자동 실행**하여 Editor Bridge 연결(`health`)까지 검증합니다.
       - (WSL 주의) WSL에서 Windows Godot(`.exe`)를 실행하는 경우, 연결 검증을 위해 **0.0.0.0 바인딩 + WSL 게이트웨이 IP** 경유 접속을 시도할 수 있습니다.
+    - (선택) `--doctor-readonly`: `--project` 사용 시 프로젝트 파일을 **수정하지 않고** 점검만 수행합니다(읽기 전용).
+      - 자동 애드온 동기화/플러그인 활성화/토큰 생성/host·port 파일 쓰기/lock 파일 정리/에디터 자동 실행을 수행하지 않고, 필요한 조치를 `suggestions`로 안내합니다.
     - (선택) `--json`: 결과를 JSON으로 출력(기계 판독용, `--doctor`와 함께만 사용 가능)
       - 스키마(요약): `{ ok, summary, details: { godot, project? }, suggestions }`
   - `--run-scenarios`: CI-safe 시나리오 스모크 테스트 실행 후 종료 (exit code: 0/1)
@@ -131,6 +133,8 @@ npm run build
   - `--strict-path-validation`: Godot 경로 검증을 엄격 모드로 실행
   - `--debug`: 디버그 로그 활성화(`DEBUG=true`)
   - `--print-mcp-config`: MCP 서버 설정 JSON 출력 후 종료 (IDE 연동시 활용)
+  - `--list-tools`: 사용 가능한 MCP 도구 목록을 출력하고 종료합니다(서버 시작 없음, exit code: 0)
+  - `--list-tools-json`: 사용 가능한 MCP 도구 목록을 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0)
   - (선택) 전역 설치/링크를 사용하면 `godot-mcp-omni` 바이너리로도 실행할 수 있습니다.
 
 예시:
@@ -150,6 +154,27 @@ CI-safe 시나리오 실행 예시:
 ```bash
 node build/index.js --run-scenarios --ci-safe
 # stdout에 "SCENARIOS: OK"가 포함되면 성공입니다.
+```
+
+도구 목록 출력 예시:
+
+```bash
+node build/index.js --list-tools
+```
+
+출력 예시(축약):
+
+```text
+Total tools: 51
+
+[server] (1)
+- server_info
+```
+
+도구 목록 JSON 출력 예시:
+
+```bash
+node build/index.js --list-tools-json
 ```
 
 #### ✅ MCP 설정 자동 생성
@@ -480,6 +505,12 @@ GUI 없이 여러 작업을 한 번에 처리합니다.
 | `ALLOW_EXTERNAL_TOOLS` | 외부 도구 실행 허용(Aseprite/HTTP 등)      | `false`     |
 | `ASEPRITE_PATH`        | Aseprite 설치 디렉터리 또는 실행 파일 경로 | 자동 탐지   |
 | `ALLOW_DANGEROUS_OPS`  | 위험한 작업 허용 여부                      | `false`     |
+
+참고:
+
+- `GODOT_PATH`가 설정되지 않은 경우, 실행 파일 자동 탐지를 시도합니다.
+- 이 레포에서 실행할 때는(레포 루트 또는 `godot-mcp-omni/`), `Godot_v*` / `Godot_*` 번들 디렉터리 아래의 Godot 실행 파일도 후보에 포함합니다.
+- 자동 탐지를 원치 않으면 `GODOT_PATH` 또는 `--godot-path`로 명시적으로 지정하세요.
 
 ---
 

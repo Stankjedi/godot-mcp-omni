@@ -13,6 +13,21 @@ import {
   writeMinimalProject,
 } from '../helpers.mjs';
 
+async function rmRecursiveWithRetry(targetPath, attempts = 8) {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error && typeof error === 'object' ? error.code : undefined;
+      if (code !== 'EACCES' && code !== 'EPERM') throw error;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  // Best-effort: leave the temp dir behind if Windows is still holding locks.
+}
+
 async function writeAtlasPng(projectPath, resPath, tileSize, columns, rows) {
   const absPath = resolveResPath(projectPath, resPath);
   assert.ok(absPath, `Invalid res path: ${resPath}`);
@@ -339,7 +354,7 @@ test(
     } finally {
       client.dispose();
       server.kill();
-      fs.rmSync(projectPath, { recursive: true, force: true });
+      await rmRecursiveWithRetry(projectPath);
     }
   },
 );

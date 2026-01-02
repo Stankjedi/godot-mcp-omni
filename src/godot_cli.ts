@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
-import { join, normalize } from 'path';
+import { dirname, join, normalize } from 'path';
 import { promisify } from 'util';
 
 import {
@@ -40,9 +40,16 @@ function translateGodotArgValue(value: string): string {
 }
 
 export function normalizeGodotPathForHost(godotPath: string): string {
+  return normalizeGodotPathForHostForPlatform(process.platform, godotPath);
+}
+
+export function normalizeGodotPathForHostForPlatform(
+  platform: NodeJS.Platform,
+  godotPath: string,
+): string {
   const trimmed = godotPath.trim();
   if (!trimmed || trimmed === 'godot') return trimmed;
-  if (process.platform === 'win32') return trimmed;
+  if (platform === 'win32') return trimmed;
 
   return windowsDrivePathToWslPath(trimmed) ?? trimmed;
 }
@@ -51,8 +58,19 @@ export function normalizeGodotArgsForHost(
   godotPath: string,
   args: string[],
 ): string[] {
-  if (!shouldTranslateWslPathsForWindowsExe(process.platform, godotPath))
-    return args;
+  return normalizeGodotArgsForHostForPlatform(
+    process.platform,
+    godotPath,
+    args,
+  );
+}
+
+export function normalizeGodotArgsForHostForPlatform(
+  platform: NodeJS.Platform,
+  godotPath: string,
+  args: string[],
+): string[] {
+  if (!shouldTranslateWslPathsForWindowsExe(platform, godotPath)) return args;
 
   const out = [...args];
   for (let i = 0; i < out.length; i += 1) {
@@ -170,6 +188,79 @@ function discoverExecutables(
   return found;
 }
 
+export type BundledGodotExecutable = { origin: string; path: string };
+
+function isWslEnv(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
+}
+
+export function discoverBundledGodotExecutables(
+  platform: NodeJS.Platform,
+  cwd: string,
+  opts: { isWsl?: boolean } = {},
+): BundledGodotExecutable[] {
+  if (!cwd) return [];
+
+  const roots: { origin: string; dir: string }[] = [
+    { origin: 'auto:bundle:cwd', dir: cwd },
+  ];
+  const parent = dirname(cwd);
+  if (parent && parent !== cwd) {
+    roots.push({ origin: 'auto:bundle:parent', dir: parent });
+  }
+
+  const windowsExePatterns = [
+    /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
+    /^Godot(_console)?\.exe$/iu,
+  ];
+  const linuxBinPatterns = [
+    /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
+    /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
+  ];
+
+  const isWsl = opts.isWsl ?? isWslEnv(process.env);
+  const patterns =
+    platform === 'win32'
+      ? windowsExePatterns
+      : platform === 'linux'
+        ? isWsl
+          ? [...linuxBinPatterns, ...windowsExePatterns]
+          : linuxBinPatterns
+        : [];
+  if (patterns.length === 0) return [];
+
+  const out: BundledGodotExecutable[] = [];
+  const seen = new Set<string>();
+
+  for (const root of roots) {
+    let entries: ReturnType<typeof readdirSync>;
+    try {
+      entries = readdirSync(root.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith('Godot_v') && !entry.name.startsWith('Godot_'))
+        continue;
+
+      const bundleDir = join(root.dir, entry.name);
+      for (const pattern of patterns) {
+        for (const p of discoverExecutables(bundleDir, pattern, 2)) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          out.push({ origin: root.origin, path: p });
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
 export async function detectGodotPath(
   options: GodotCliOptions = {},
 ): Promise<string> {
@@ -275,6 +366,10 @@ export async function detectGodotPath(
           pushCandidate('auto:cwd:.tools', p);
         }
       }
+    }
+
+    for (const b of discoverBundledGodotExecutables(osPlatform, cwd)) {
+      pushCandidate(b.origin, b.path);
     }
   }
 
