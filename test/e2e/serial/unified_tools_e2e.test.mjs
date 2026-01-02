@@ -157,6 +157,8 @@ function spawnGodotEditor(godotPath, projectPath, env) {
 function spawnGodotEditorGui(godotPath, projectPath, env) {
   const resolvedGodotPath = normalizeGodotPathForHost(godotPath);
   const args = normalizeGodotArgsForHost(resolvedGodotPath, [
+    '--rendering-driver',
+    'opengl3',
     '-e',
     '--path',
     projectPath,

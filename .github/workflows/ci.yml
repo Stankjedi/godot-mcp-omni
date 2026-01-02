@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+env:
+  GODOT_VERSION: 4.5.1-stable
+  GODOT_PLATFORM: linux-x86_64
+  GODOT_CACHE_KEY: godot-${{ env.GODOT_VERSION }}-${{ env.GODOT_PLATFORM }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -81,12 +86,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: godot-mcp-omni/.cache/godot
-          key: godot-4.5.1-stable-linux-x86_64
+          key: ${{ env.GODOT_CACHE_KEY }}
 
       - name: Install Godot (pinned)
         run: |
           set -euxo pipefail
-          GODOT_PATH="$(node scripts/install_godot.js --version 4.5.1-stable --platform linux-x86_64)"
+          GODOT_PATH="$(node scripts/install_godot.js --version "$GODOT_VERSION" --platform "$GODOT_PLATFORM")"
           echo "GODOT_PATH=$GODOT_PATH" >> "$GITHUB_ENV"
 
       - name: Verify examples (with Godot)
@@ -97,3 +102,49 @@ jobs:
 
       - name: Verify MCP (headless)
         run: VERIFY_MCP_SKIP_EDITOR=true npm run verify:mcp
+
+  godot-integration-gui:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: godot-mcp-omni
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'godot-mcp-omni/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Xvfb
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth
+
+      - name: Cache Godot (Linux x86_64)
+        uses: actions/cache@v4
+        with:
+          path: godot-mcp-omni/.cache/godot
+          key: ${{ env.GODOT_CACHE_KEY }}
+
+      - name: Install Godot (pinned)
+        run: |
+          set -euxo pipefail
+          GODOT_PATH="$(node scripts/install_godot.js --version "$GODOT_VERSION" --platform "$GODOT_PLATFORM")"
+          echo "GODOT_PATH=$GODOT_PATH" >> "$GITHUB_ENV"
+
+      - name: GUI viewport capture test (Xvfb)
+        env:
+          GODOT_MCP_GUI_TEST: 'true'
+        run: |
+          set -euxo pipefail
+          xvfb-run -a -s "-screen 0 1280x720x24" node --test --test-concurrency=1 --test-name-pattern="Editor view manager GUI" test/e2e/serial/unified_tools_e2e.test.mjs

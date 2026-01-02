@@ -3,6 +3,12 @@ import { existsSync, readdirSync } from 'fs';
 import { join, normalize } from 'path';
 import { promisify } from 'util';
 
+import {
+  shouldTranslateWslPathsForWindowsExe,
+  windowsDrivePathToWslPath,
+  wslPathToWindowsDrivePath,
+} from './platform/path_translation.js';
+
 const execFileAsync = promisify(execFile);
 
 export interface GodotCliOptions {
@@ -27,41 +33,10 @@ function getExitCodeFromExecError(error: unknown): number {
   return typeof code === 'number' ? code : 1;
 }
 
-function isWindowsGodotBinaryPath(p: string): boolean {
-  return p.trim().toLowerCase().endsWith('.exe');
-}
-
-function shouldTranslateWslPathsForGodot(godotPath: string): boolean {
-  // WSL (linux) running a Windows Godot executable expects Windows-style paths in args.
-  return process.platform !== 'win32' && isWindowsGodotBinaryPath(godotPath);
-}
-
-function isWindowsDriveAbsolutePath(p: string): boolean {
-  return /^[a-zA-Z]:[\\/]/u.test(p.trim());
-}
-
-function windowsPathToWslPath(p: string): string | undefined {
-  const trimmed = p.trim();
-  const match = trimmed.match(/^([a-zA-Z]):[\\/](.*)$/u);
-  if (!match) return undefined;
-  const drive = match[1].toLowerCase();
-  const rest = match[2].replaceAll('\\', '/');
-  return `/mnt/${drive}/${rest}`;
-}
-
-function wslPathToWindowsPath(p: string): string | undefined {
-  const trimmed = p.trim();
-  const match = trimmed.match(/^\/mnt\/([a-zA-Z])\/(.*)$/u);
-  if (!match) return undefined;
-  const drive = match[1].toUpperCase();
-  const rest = match[2].replaceAll('/', '\\');
-  return `${drive}:\\${rest}`;
-}
-
 function translateGodotArgValue(value: string): string {
   if (!value) return value;
   if (value.startsWith('res://') || value.startsWith('user://')) return value;
-  return wslPathToWindowsPath(value) ?? value;
+  return wslPathToWindowsDrivePath(value) ?? value;
 }
 
 export function normalizeGodotPathForHost(godotPath: string): string {
@@ -69,18 +44,15 @@ export function normalizeGodotPathForHost(godotPath: string): string {
   if (!trimmed || trimmed === 'godot') return trimmed;
   if (process.platform === 'win32') return trimmed;
 
-  if (isWindowsDriveAbsolutePath(trimmed)) {
-    return windowsPathToWslPath(trimmed) ?? trimmed;
-  }
-
-  return trimmed;
+  return windowsDrivePathToWslPath(trimmed) ?? trimmed;
 }
 
 export function normalizeGodotArgsForHost(
   godotPath: string,
   args: string[],
 ): string[] {
-  if (!shouldTranslateWslPathsForGodot(godotPath)) return args;
+  if (!shouldTranslateWslPathsForWindowsExe(process.platform, godotPath))
+    return args;
 
   const out = [...args];
   for (let i = 0; i < out.length; i += 1) {
@@ -203,6 +175,7 @@ export async function detectGodotPath(
 ): Promise<string> {
   const debug = options.debug;
   const strict = options.strictPathValidation === true;
+  const osPlatform = process.platform;
   const cache = new Map<string, boolean>();
   const attempted: GodotPathDetectionAttempt[] = [];
 
@@ -226,12 +199,21 @@ export async function detectGodotPath(
     if (found) return found;
   }
 
-  if (process.env.GODOT_PATH) {
-    const found = await tryCandidate('env', process.env.GODOT_PATH);
+  if (process.env.GODOT_PATH !== undefined) {
+    const raw = process.env.GODOT_PATH.trim();
+    if (!raw) {
+      debug?.('GODOT_PATH is set but empty; skipping auto-detection.');
+      if (osPlatform === 'win32')
+        return normalize('C:\\__godot_disabled__\\Godot.exe');
+      if (osPlatform === 'darwin')
+        return normalize('/__godot_disabled__/Godot.app/Contents/MacOS/Godot');
+      return normalize('/__godot_disabled__/godot');
+    }
+
+    const found = await tryCandidate('env', raw);
     if (found) return found;
   }
 
-  const osPlatform = process.platform;
   debug?.(`Auto-detecting Godot path for platform: ${osPlatform}`);
 
   const seen = new Set<string>();

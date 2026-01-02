@@ -8,6 +8,12 @@ import {
 } from './pixel_image.js';
 import { writePngRgba } from './png.js';
 
+const MAX_HTTP_IMAGE_GEN_BYTES = 10 * 1024 * 1024;
+const LOCALHOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
 export type ImageGenParams = {
   width: number;
   height: number;
@@ -111,17 +117,35 @@ export class HttpImageGenAdapter implements ImageGenAdapter {
         responseType: 'arraybuffer',
         headers: { ...(this.extraHeaders ?? {}) },
         timeout: 300_000,
+        maxContentLength: MAX_HTTP_IMAGE_GEN_BYTES,
+        maxBodyLength: MAX_HTTP_IMAGE_GEN_BYTES,
+        maxRedirects: 0,
         validateStatus: () => true,
       },
     );
 
     if (resp.status < 200 || resp.status >= 300) {
-      throw new Error(
-        `Image generation HTTP ${resp.status}: ${String(resp.data).slice(0, 200)}`,
-      );
+      throw new Error(`Image generation failed (HTTP ${resp.status})`);
     }
 
-    const buf = Buffer.from(resp.data as ArrayBuffer);
+    const contentType = resp.headers['content-type'];
+    if (
+      typeof contentType === 'string' &&
+      !contentType.toLowerCase().includes('image/png')
+    ) {
+      throw new Error('Image generation failed (expected image/png)');
+    }
+
+    const data = resp.data as ArrayBuffer | Buffer;
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const signature = buf.subarray(0, PNG_SIGNATURE.length);
+    if (
+      signature.length !== PNG_SIGNATURE.length ||
+      !signature.equals(PNG_SIGNATURE)
+    ) {
+      throw new Error('Image generation failed (invalid PNG)');
+    }
+
     await fs.mkdir(path.dirname(params.outputPath), { recursive: true });
     await fs.writeFile(params.outputPath, buf);
     return {
@@ -150,6 +174,36 @@ export class ManualDropImageGenAdapter implements ImageGenAdapter {
   }
 }
 
+function validateHttpImageGenUrl(rawUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch (error) {
+    throw new Error(
+      `Invalid IMAGE_GEN_URL: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('Invalid IMAGE_GEN_URL: credentials are not allowed');
+  }
+
+  if (parsed.protocol === 'https:') return parsed.toString();
+  if (parsed.protocol === 'http:') {
+    const allowRemoteHttp =
+      (process.env.ALLOW_INSECURE_IMAGE_GEN_HTTP ?? '').trim() === 'true';
+    if (allowRemoteHttp) return parsed.toString();
+
+    const host = parsed.hostname.toLowerCase();
+    if (LOCALHOSTS.has(host)) return parsed.toString();
+    throw new Error(
+      'Invalid IMAGE_GEN_URL: http: is only allowed for localhost (set ALLOW_INSECURE_IMAGE_GEN_HTTP=true to allow remote http:)',
+    );
+  }
+
+  throw new Error('Invalid IMAGE_GEN_URL: must use http: or https:');
+}
+
 export function createImageGenAdapter(opts: {
   allowExternalTools: boolean;
   mode?: 'auto' | 'manual_drop';
@@ -160,11 +214,12 @@ export function createImageGenAdapter(opts: {
   if (opts.allowExternalTools && process.env.ALLOW_EXTERNAL_TOOLS === 'true') {
     const url = (process.env.IMAGE_GEN_URL ?? '').trim();
     if (url.length > 0) {
+      const validatedUrl = validateHttpImageGenUrl(url);
       const headerName = (process.env.IMAGE_GEN_AUTH_HEADER ?? '').trim();
       const headerValue = (process.env.IMAGE_GEN_AUTH_VALUE ?? '').trim();
       const headers =
         headerName && headerValue ? { [headerName]: headerValue } : undefined;
-      return new HttpImageGenAdapter(url, headers);
+      return new HttpImageGenAdapter(validatedUrl, headers);
     }
   }
   return new BuiltinImageGenAdapter();

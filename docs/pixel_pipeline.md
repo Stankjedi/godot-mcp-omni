@@ -262,6 +262,29 @@ External tools are disabled by default.
 If `allowExternalTools=true` is passed to a tool, and `ALLOW_EXTERNAL_TOOLS=true` is set,
 `pixel_tilemap_generate` can call an HTTP image generator:
 
+- `IMAGE_GEN_URL=https://...` (POST JSON → returns PNG body)
+  - `https:` is allowed for any host.
+  - `http:` is allowed only for local hosts (`localhost`, `127.0.0.1`, `::1`) unless you explicitly opt in:
+    - `ALLOW_INSECURE_IMAGE_GEN_HTTP=true`
+  - URLs must not include username/password credentials (use headers instead).
+- Optional auth:
+  - `IMAGE_GEN_AUTH_HEADER=Authorization`
+  - `IMAGE_GEN_AUTH_VALUE=Bearer <token>`
+
+External tools safety:
+
+- The HTTP response body is size-limited (currently 10MB) to avoid accidental large downloads.
+- Non-2xx responses are treated as errors and do not write output files.
+
+Example:
+
+```bash
+export ALLOW_EXTERNAL_TOOLS=true
+export IMAGE_GEN_URL=http://127.0.0.1:8080/generate
+```
+
+If not configured, the pipeline falls back to a **builtin placeholder generator**.
+
 ## ManualDrop mode (opt-in)
 
 ManualDrop is an **offline-friendly** mode that skips all image generation and instead requires
@@ -279,13 +302,6 @@ Supported tools:
 
 - `pixel_tilemap_generate` (`imageGenMode="manual_drop"` for the tilesheet PNG)
 - `pixel_object_generate` (`imageGenMode="manual_drop"` for per-object sprite PNGs when `asepritePath` is omitted)
-
-- `IMAGE_GEN_URL=https://...` (POST JSON → returns PNG body)
-- Optional auth:
-  - `IMAGE_GEN_AUTH_HEADER=Authorization`
-  - `IMAGE_GEN_AUTH_VALUE=Bearer <token>`
-
-If not configured, the pipeline falls back to a **builtin placeholder generator**.
 
 ### External spec generation (optional)
 

@@ -5,7 +5,7 @@ This document is generated from the build-time tool definition modules.
 - Source: `build/tools/definitions/*.js`
 - Generator: `scripts/generate_tools_md.js`
 
-Total tools: 50
+Total tools: 51
 
 ---
 
@@ -440,6 +440,15 @@ Save a scene (optionally as a new file)
 | ------------- | -------------------------- |
 | Required keys | `projectPath`, `scenePath` |
 | Action enum   | —                          |
+
+## `server_info`
+
+Return server metadata and safety defaults (CI-safe; no Godot required).
+
+| Field         | Value |
+| ------------- | ----- |
+| Required keys | —     |
+| Action enum   | —     |
 
 ## `stop_project`
 

@@ -24,22 +24,14 @@ import { createMacroManagerToolHandlers } from './tools/macro_manager.js';
 import { createPixelToolHandlers } from './tools/pixel.js';
 import { createPixelManagerToolHandlers } from './tools/pixel_manager.js';
 import { createProjectToolHandlers } from './tools/project.js';
+import { createServerInfoToolHandlers } from './tools/server_info_tool.js';
 import { createUnifiedToolHandlers } from './tools/unified.js';
 import { createWorkflowManagerToolHandlers } from './tools/workflow_manager.js';
 
-import { ASEPRITE_TOOL_DEFINITIONS } from './tools/definitions/aseprite_tools.js';
-import { EDITOR_RPC_TOOL_DEFINITIONS } from './tools/definitions/editor_rpc_tools.js';
-import { HEADLESS_TOOL_DEFINITIONS } from './tools/definitions/headless_tools.js';
-import { MACRO_TOOL_DEFINITIONS } from './tools/definitions/macro_tools.js';
-import { PIXEL_MANAGER_TOOL_DEFINITIONS } from './tools/definitions/pixel_manager_tools.js';
-import { PIXEL_TOOL_DEFINITIONS } from './tools/definitions/pixel_tools.js';
-import { PROJECT_TOOL_DEFINITIONS } from './tools/definitions/project_tools.js';
-import { UNIFIED_TOOL_DEFINITIONS } from './tools/definitions/unified_tools.js';
-import { WORKFLOW_TOOL_DEFINITIONS } from './tools/definitions/workflow_tools.js';
+import { ALL_TOOL_DEFINITIONS } from './tools/definitions/all_tools.js';
 
 import type { EditorBridgeClient } from './editor_bridge_client.js';
 import type { ServerContext } from './tools/context.js';
-import type { ToolDefinition } from './tools/definitions/tool_definition.js';
 import type { GodotProcess, ToolHandler, ToolResponse } from './tools/types.js';
 
 const DEBUG_MODE = process.env.DEBUG === 'true';
@@ -81,17 +73,7 @@ function toMcpResponse(result: ToolResponse): McpToolResponse {
   };
 }
 
-const TOOL_DEFINITIONS: ToolDefinition[] = [
-  ...HEADLESS_TOOL_DEFINITIONS,
-  ...EDITOR_RPC_TOOL_DEFINITIONS,
-  ...PROJECT_TOOL_DEFINITIONS,
-  ...UNIFIED_TOOL_DEFINITIONS,
-  ...ASEPRITE_TOOL_DEFINITIONS,
-  ...PIXEL_MANAGER_TOOL_DEFINITIONS,
-  ...MACRO_TOOL_DEFINITIONS,
-  ...PIXEL_TOOL_DEFINITIONS,
-  ...WORKFLOW_TOOL_DEFINITIONS,
-];
+const TOOL_DEFINITIONS = ALL_TOOL_DEFINITIONS;
 
 export class GodotMcpOmniServer {
   private server: Server;
@@ -272,6 +254,7 @@ export class GodotMcpOmniServer {
     const headlessHandlers = createHeadlessToolHandlers(ctx);
     const editorHandlers = createEditorToolHandlers(ctx);
     const projectHandlers = createProjectToolHandlers(ctx);
+    const serverInfoHandlers = createServerInfoToolHandlers(ctx);
 
     const unifiedHandlers = createUnifiedToolHandlers(ctx, {
       ...headlessHandlers,
@@ -316,6 +299,7 @@ export class GodotMcpOmniServer {
     });
 
     return {
+      ...serverInfoHandlers,
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,

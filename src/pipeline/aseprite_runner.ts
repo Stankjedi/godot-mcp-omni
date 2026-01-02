@@ -2,6 +2,12 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  shouldTranslateWslPathsForWindowsExe,
+  windowsDrivePathToWslPath as windowsDrivePathToWslPathOrNull,
+  wslPathToWindowsDrivePath,
+} from '../platform/path_translation.js';
+
 export type AsepriteRunResult = {
   ok: boolean;
   summary: string;
@@ -21,8 +27,36 @@ export type AsepriteRunResult = {
   };
 };
 
+type AsepriteExecutableResolution = {
+  exe: string | null;
+  attemptedCandidates: string[];
+};
+
+const asepriteExecutableResolutionCache = new Map<
+  string,
+  AsepriteExecutableResolution
+>();
+
 function externalToolsEnabled(): boolean {
   return process.env.ALLOW_EXTERNAL_TOOLS === 'true';
+}
+
+export function windowsDrivePathToWslPath(p: string): string {
+  return windowsDrivePathToWslPathOrNull(p) ?? p;
+}
+
+function translateAsepriteArgValue(value: string): string {
+  if (!value) return value;
+  return wslPathToWindowsDrivePath(value) ?? value;
+}
+
+export function normalizeAsepriteArgsForHost(
+  platform: NodeJS.Platform,
+  exe: string,
+  args: string[],
+): string[] {
+  if (!shouldTranslateWslPathsForWindowsExe(platform, exe)) return args;
+  return args.map(translateAsepriteArgValue);
 }
 
 function tryStat(
@@ -79,15 +113,18 @@ function defaultAsepriteCandidates(): string[] {
   ];
 }
 
-function resolveAsepriteExecutable(): {
-  exe: string | null;
-  attemptedCandidates: string[];
-} {
+function resolveAsepriteExecutable(): AsepriteExecutableResolution {
   const attemptedCandidates: string[] = [];
 
-  const envValue = (process.env.ASEPRITE_PATH ?? '').trim();
-  if (envValue.length > 0) {
-    attemptedCandidates.push(envValue);
+  const rawEnvValue = (process.env.ASEPRITE_PATH ?? '').trim();
+  if (rawEnvValue.length > 0) {
+    attemptedCandidates.push(rawEnvValue);
+    const envValue =
+      process.platform === 'win32'
+        ? rawEnvValue
+        : windowsDrivePathToWslPath(rawEnvValue);
+    if (envValue !== rawEnvValue) attemptedCandidates.push(envValue);
+
     const resolvedFromEnv = resolveAsepriteExecutableFromPath(envValue);
     if (resolvedFromEnv) return { exe: resolvedFromEnv, attemptedCandidates };
   }
@@ -106,6 +143,17 @@ function resolveAsepriteExecutable(): {
   return { exe: null, attemptedCandidates };
 }
 
+function resolveAsepriteExecutableCached(): AsepriteExecutableResolution {
+  const asepritePathEnv = (process.env.ASEPRITE_PATH ?? '').trim();
+  const key = `${process.platform}|${asepritePathEnv}`;
+  const cached = asepriteExecutableResolutionCache.get(key);
+  if (cached) return cached;
+
+  const resolved = resolveAsepriteExecutable();
+  asepriteExecutableResolutionCache.set(key, resolved);
+  return resolved;
+}
+
 export function getAsepriteStatus(): {
   externalToolsEnabled: boolean;
   asepritePathEnv: string | null;
@@ -113,7 +161,7 @@ export function getAsepriteStatus(): {
   attemptedCandidates: string[];
 } {
   const asepritePathEnv = (process.env.ASEPRITE_PATH ?? '').trim();
-  const resolved = resolveAsepriteExecutable();
+  const resolved = resolveAsepriteExecutableCached();
   return {
     externalToolsEnabled: externalToolsEnabled(),
     asepritePathEnv: asepritePathEnv.length > 0 ? asepritePathEnv : null,
@@ -151,7 +199,7 @@ export async function runAseprite(
     };
   }
 
-  const resolved = resolveAsepriteExecutable();
+  const resolved = resolveAsepriteExecutableCached();
   const exe = resolved.exe;
   if (!exe) {
     return {
@@ -174,9 +222,14 @@ export async function runAseprite(
 
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const cwd = opts.cwd;
+  const normalizedArgs = normalizeAsepriteArgsForHost(
+    process.platform,
+    exe,
+    args,
+  );
 
   return await new Promise<AsepriteRunResult>((resolve) => {
-    const child = spawn(exe, args, {
+    const child = spawn(exe, normalizedArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -205,7 +258,7 @@ export async function runAseprite(
         ok: false,
         summary: `Failed to spawn Aseprite: ${error.message}`,
         command: exe,
-        args,
+        args: normalizedArgs,
         exitCode: null,
         durationMs: Date.now() - start,
         stdout,
@@ -235,7 +288,7 @@ export async function runAseprite(
         ok,
         summary: ok ? 'Aseprite command succeeded' : 'Aseprite command failed',
         command: exe,
-        args,
+        args: normalizedArgs,
         exitCode: code,
         durationMs: Date.now() - start,
         stdout,

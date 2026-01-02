@@ -53,12 +53,14 @@ export function writeMinimalProject(
   );
 }
 
-export function startServer(env = {}) {
+export function startServer(env = {}, spawnOptions = {}) {
   return spawn(process.execPath, [SERVER_ENTRY], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    ...spawnOptions,
     env: {
       ...process.env,
+      ...(spawnOptions.env ?? {}),
       ...env,
     },
   });

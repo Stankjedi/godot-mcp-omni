@@ -46,6 +46,47 @@ test('doctor_report blocks reportRelativePath traversal (CI-safe)', async () => 
   }
 });
 
+test('doctor_report creates and truncates a markdown report (CI-safe)', async () => {
+  const projectPath = mkdtemp('godot-mcp-omni-doctor-report-ci-safe-');
+  writeMinimalProject(projectPath, 'DoctorReportCiSafe', null);
+
+  const server = startServer({ GODOT_PATH: '' });
+  const client = new JsonRpcProcessClient(server);
+
+  try {
+    await waitForServerStartup();
+
+    const resp = await client.callToolOrThrow('godot_workspace_manager', {
+      action: 'doctor_report',
+      projectPath,
+    });
+
+    assert.equal(resp.ok, true);
+    assert.equal(typeof resp.details?.reportPath, 'string');
+
+    const reportPath = resp.details.reportPath;
+    assert.ok(fs.existsSync(reportPath), 'report file not created');
+
+    const first = fs.readFileSync(reportPath, 'utf8');
+    assert.match(first, /# Doctor Report/u);
+    assert.match(first, /(GODOT_VERSION_UNAVAILABLE|DOCTOR_SCAN_FAILED)/u);
+
+    // Truncate/replace behavior (no append).
+    fs.writeFileSync(reportPath, 'SENTINEL\n', 'utf8');
+    const resp2 = await client.callToolOrThrow('godot_workspace_manager', {
+      action: 'doctor_report',
+      projectPath,
+    });
+    assert.equal(resp2.ok, true);
+    const second = fs.readFileSync(reportPath, 'utf8');
+    assert.ok(!second.includes('SENTINEL'), 'report was not truncated');
+  } finally {
+    client.dispose();
+    server.kill();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
 test(
   'doctor_report generates and truncates a markdown report (headless)',
   { skip: !process.env.GODOT_PATH },

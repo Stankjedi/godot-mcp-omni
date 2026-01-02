@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 
+const PROJECT_ROOT_REALPATH_CACHE_CAP = 32;
+const projectRootRealpathCache = new Map<string, string>();
+
 function normalizeForComparison(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p;
 }
@@ -19,6 +22,28 @@ function realpathSafe(p: string): string {
     fs.realpathSync as unknown as { native?: (p: string) => string }
   ).native;
   return native ? native(p) : fs.realpathSync(p);
+}
+
+function getCachedProjectRootRealpath(projectPath: string): {
+  projectRootResolved: string;
+  projectRootReal: string;
+} {
+  const projectRootResolved = path.resolve(projectPath);
+  const cached = projectRootRealpathCache.get(projectRootResolved);
+  if (cached) {
+    projectRootRealpathCache.delete(projectRootResolved);
+    projectRootRealpathCache.set(projectRootResolved, cached);
+    return { projectRootResolved, projectRootReal: cached };
+  }
+
+  const projectRootReal = realpathSafe(projectRootResolved);
+  projectRootRealpathCache.set(projectRootResolved, projectRootReal);
+  if (projectRootRealpathCache.size > PROJECT_ROOT_REALPATH_CACHE_CAP) {
+    const oldestKey = projectRootRealpathCache.keys().next().value;
+    if (oldestKey) projectRootRealpathCache.delete(oldestKey);
+  }
+
+  return { projectRootResolved, projectRootReal };
 }
 
 function findExistingAncestor(absPath: string): {
@@ -85,8 +110,8 @@ export function resolvePathLikeInsideProject(
     throw new Error(`Disallowed path scheme (user://): ${userPath}`);
   }
 
-  const projectRootResolved = path.resolve(projectPath);
-  const projectRootReal = realpathSafe(projectRootResolved);
+  const { projectRootResolved, projectRootReal } =
+    getCachedProjectRootRealpath(projectPath);
 
   let candidate = userPath;
   if (candidate.startsWith('res://'))

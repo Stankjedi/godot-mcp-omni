@@ -41,3 +41,57 @@ test('CLI --version prints package version and exits 0', async () => {
   assert.equal(res.stdout.trim(), pkg.version);
   assert.equal(res.stderr.trim(), '');
 });
+
+test('CLI --print-mcp-config prints JSON-only output and exits 0', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--print-mcp-config'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, GODOT_PATH: '' },
+    },
+  );
+
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr.trim(), '');
+
+  const config = JSON.parse(res.stdout);
+  assert.ok(config && typeof config === 'object' && !Array.isArray(config));
+
+  assert.equal(config.command, 'node');
+  assert.ok(Array.isArray(config.args), 'args must be an array');
+  assert.equal(config.args.length, 1);
+  assert.equal(typeof config.args[0], 'string');
+  assert.ok(path.isAbsolute(config.args[0]), 'args[0] must be absolute');
+  assert.ok(!Object.prototype.hasOwnProperty.call(config, 'env'));
+});
+
+test('CLI --print-mcp-config uses --godot-path and overrides GODOT_PATH', () => {
+  const fakeGodotPath = '/fake/path/to/godot';
+
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--print-mcp-config', '--godot-path', fakeGodotPath],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, GODOT_PATH: '/ignored/by-cli' },
+    },
+  );
+
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr.trim(), '');
+
+  const config = JSON.parse(res.stdout);
+  assert.ok(config && typeof config === 'object' && !Array.isArray(config));
+
+  assert.equal(config.command, 'node');
+  assert.ok(Array.isArray(config.args), 'args must be an array');
+  assert.equal(config.args.length, 1);
+  assert.equal(typeof config.args[0], 'string');
+  assert.ok(path.isAbsolute(config.args[0]), 'args[0] must be absolute');
+
+  assert.ok(
+    config.env && typeof config.env === 'object' && !Array.isArray(config.env),
+  );
+  assert.equal(config.env.GODOT_PATH, fakeGodotPath);
+});
