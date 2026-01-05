@@ -107,6 +107,10 @@ async function loadToolDefinitions() {
     { file: 'editor_rpc_tools.js', exportName: 'EDITOR_RPC_TOOL_DEFINITIONS' },
     { file: 'project_tools.js', exportName: 'PROJECT_TOOL_DEFINITIONS' },
     { file: 'unified_tools.js', exportName: 'UNIFIED_TOOL_DEFINITIONS' },
+    {
+      file: 'meta_tool_manager_tools.js',
+      exportName: 'META_TOOL_MANAGER_TOOL_DEFINITIONS',
+    },
     { file: 'server_tools.js', exportName: 'SERVER_TOOL_DEFINITIONS' },
     { file: 'aseprite_tools.js', exportName: 'ASEPRITE_TOOL_DEFINITIONS' },
     {

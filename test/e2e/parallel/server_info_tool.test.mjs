@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_client.js';
-import { startServer, waitForServerStartup } from '../helpers.mjs';
+import { startServer, waitForServerReady } from '../helpers.mjs';
 
-test('server_info returns server metadata (CI-safe)', async () => {
+test('meta_tool_manager server_info returns server metadata (CI-safe)', async () => {
   const server = startServer({
     GODOT_PATH: '',
     ALLOW_DANGEROUS_OPS: 'false',
@@ -13,9 +13,11 @@ test('server_info returns server metadata (CI-safe)', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
-    const info = await client.callToolOrThrow('server_info', {});
+    const info = await client.callToolOrThrow('meta_tool_manager', {
+      action: 'server_info',
+    });
 
     const details = info.details;
     assert.ok(details && typeof details === 'object');

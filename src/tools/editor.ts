@@ -197,7 +197,9 @@ export function createEditorToolHandlers(
       return {
         ok: false,
         summary: 'Not connected to editor bridge',
-        details: { suggestions: ['Call godot_connect_editor first'] },
+        details: {
+          suggestions: ['Call godot_workspace_manager(action="connect") first'],
+        },
       };
     }
     return { client, projectPath };

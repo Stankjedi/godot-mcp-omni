@@ -7,7 +7,6 @@ Related files:
 - Schema: `scripts/workflow.schema.json`
 - Minimal example: `scripts/workflow_example.json`
 - Aseprite manager example: `scripts/workflow_aseprite_manager_example.json` (requires Aseprite + `ALLOW_EXTERNAL_TOOLS=true`)
-- Runner script: `scripts/run_workflow.js`
 - CLI runner: `godot-mcp-omni --run-workflow <path>`
 - MCP tool: `workflow_manager` (see `docs/TOOLS.md`)
 
@@ -25,7 +24,7 @@ At a high level, a workflow JSON looks like this:
 
 Each step supports:
 
-- `tool` (required): tool name, e.g. `tools/list`, `macro_manager`
+- `tool` (required): tool name, e.g. `tools/list`, `workflow_manager` (supports `macro.*` actions)
 - `args` (optional): object passed to the tool
 - `id` / `title` (optional): metadata used by the runner
 - `expectOk` (optional): defaults to `true`
@@ -61,7 +60,7 @@ The runner executes steps sequentially and prints step-by-step status:
 
 ```bash
 cd godot-mcp-omni
-npm run workflow:run -- --workflow scripts/workflow_example.json --ci-safe
+npm run workflow:run -- scripts/workflow_example.json --ci-safe
 ```
 
 You can also run the same workflow via the CLI entrypoint (useful for installed users):
@@ -87,4 +86,4 @@ Then provide a project path either by:
 
 - Adding `"projectPath": "..."`
   at the workflow root, or
-- Passing `--project <path>` to `scripts/run_workflow.js`
+- Passing `--workflow-project <path>` to the CLI runner

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_client.js';
-import { startServer, waitForServerStartup } from '../helpers.mjs';
+import { startServer, waitForServerReady } from '../helpers.mjs';
 
 function toolNamesFromListResult(result) {
   const tools = result && typeof result === 'object' ? result.tools : undefined;
@@ -22,21 +22,23 @@ function toolFromListResult(result, toolName) {
   return null;
 }
 
-test('Pixel pipeline tools are registered', async () => {
+test('Pixel pipeline manager tools are registered (no pixel_* legacy tools)', async () => {
   const server = startServer({ GODOT_PATH: '' });
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const resp = await client.send('tools/list', {});
     if ('error' in resp) {
       throw new Error(`tools/list error: ${JSON.stringify(resp.error)}`);
     }
 
     const names = toolNamesFromListResult(resp.result);
-    for (const required of [
-      'pixel_manager',
-      'macro_manager',
+    for (const required of ['pixel_manager', 'workflow_manager']) {
+      assert.ok(names.includes(required), `Missing tool: ${required}`);
+    }
+
+    for (const removed of [
       'pixel_project_analyze',
       'pixel_goal_to_spec',
       'pixel_tilemap_generate',
@@ -49,8 +51,22 @@ test('Pixel pipeline tools are registered', async () => {
       'pixel_macro_run',
       'pixel_manifest_get',
     ]) {
-      assert.ok(names.includes(required), `Missing tool: ${required}`);
+      assert.ok(!names.includes(removed), `Unexpected legacy tool: ${removed}`);
     }
+
+    const workflowManager = toolFromListResult(resp.result, 'workflow_manager');
+    assert.ok(workflowManager, 'Missing tool object: workflow_manager');
+    const workflowProps = workflowManager.inputSchema.properties;
+    assert.ok(
+      workflowProps &&
+        typeof workflowProps === 'object' &&
+        !Array.isArray(workflowProps) &&
+        workflowProps.action &&
+        typeof workflowProps.action === 'object' &&
+        Array.isArray(workflowProps.action.enum) &&
+        workflowProps.action.enum.includes('macro.run'),
+      'workflow_manager action enum must include macro.run',
+    );
 
     const pixelManager = toolFromListResult(resp.result, 'pixel_manager');
     assert.ok(pixelManager, 'Missing tool object: pixel_manager');

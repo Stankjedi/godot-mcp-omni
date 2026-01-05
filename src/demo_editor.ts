@@ -140,7 +140,8 @@ async function main() {
       rootNodeType: 'Node2D',
     });
 
-    await callTool('godot_connect_editor', {
+    await callTool('godot_workspace_manager', {
+      action: 'connect',
       projectPath,
       token,
       timeoutMs: 60000,

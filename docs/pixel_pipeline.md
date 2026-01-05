@@ -3,7 +3,7 @@
 This document describes the **2D pixel content pipeline** tools added to `godot-mcp-omni`.
 For a quick overview and example, see `README.md` in the repo root.
 
-Tip: `pixel_manager` provides a single entry point that maps `action` → `pixel_*` tools.
+Tip: `pixel_manager` is the canonical entry point. Legacy `pixel_*` tools are not exposed; use `pixel_manager(action="...")`.
 
 The goal is to support a “single request → assets + scenes generated” workflow:
 
@@ -15,7 +15,7 @@ The goal is to support a “single request → assets + scenes generated” work
 
 ## Tools
 
-### `pixel_project_analyze`
+### `pixel_manager(action="project_analyze")`
 
 Analyzes a Godot project and returns a `PixelProjectProfile` with suggested defaults.
 
@@ -27,7 +27,7 @@ Outputs:
 
 - A profile object (`tileSize`, asset roots, discovered candidates, assumptions).
 
-### `pixel_goal_to_spec`
+### `pixel_manager(action="goal_to_spec")`
 
 Converts a natural-language goal into a validated macro `plan[]` and derived specs
 (`tilemapSpec`, `worldSpec`, `objectSpec`).
@@ -39,7 +39,7 @@ Inputs:
 - `allowExternalTools` (optional; required for HTTP spec generation)
 - `timeoutMs` (optional; default: 30000)
 
-### `pixel_tilemap_generate`
+### `pixel_manager(action="tilemap_generate")`
 
 Generates a tile sheet PNG and creates a Godot `TileSet` resource from it.
 
@@ -55,7 +55,7 @@ Inputs:
 
 Tip:
 
-- If you export a custom tilesheet PNG (for example via `aseprite_export_spritesheet`) into the expected `spec.output.sheetPngPath`, run `pixel_tilemap_generate` with `reuseExistingSheet=true` to create the `.tres` without overwriting the PNG.
+- If you export a custom tilesheet PNG (for example via `aseprite_manager(action="export_sheet")`) into the expected `spec.output.sheetPngPath`, run `pixel_manager(action="tilemap_generate")` with `reuseExistingSheet=true` to create the `.tres` without overwriting the PNG.
 - For offline/manual workflows, you can set `imageGenMode="manual_drop"`: if the expected PNG is missing, the tool fails with `requiredFiles[]` and `suggestions[]` so you can drop the PNG and re-run.
 
 Outputs:
@@ -65,7 +65,7 @@ Outputs:
 - `res://assets/generated/tilesets/<name>/<name>.json` metadata (tile mapping)
 - `res://assets/generated/tilesets/<name>/<name>.aseprite.json` (when `spec.sourceAsepritePath` is used; raw Aseprite JSON export)
 
-### `pixel_world_generate`
+### `pixel_manager(action="world_generate")`
 
 Creates/updates a layered world scene using **TileMapLayer nodes** (not deprecated `TileMap`).
 
@@ -80,7 +80,7 @@ Outputs:
 
 - World scene `.tscn` with a `World` root and layer nodes under `TileLayers/`.
 
-### `pixel_layer_ensure`
+### `pixel_manager(action="layer_ensure")`
 
 Ensures a layered world scene has the requested `TileMapLayer` nodes (does not generate tiles).
 
@@ -90,7 +90,7 @@ Layer organization notes:
   the operation reuses it and (by default) reparents it under `TileLayers/` to match the standard structure.
 - Set `spec.organizeExisting=false` to disable reparenting.
 
-### `pixel_object_generate`
+### `pixel_manager(action="object_generate")`
 
 Generates object sprite assets and (optionally) object scenes for interactive props.
 
@@ -122,7 +122,7 @@ Default outputs:
 - `res://assets/generated/sprites/<id>/<id>.sprite_frames.tres` (when animation is enabled)
 - `res://scenes/generated/props/<id>.tscn` (when `representation="scene"`)
 
-### `pixel_object_place`
+### `pixel_manager(action="object_place")`
 
 Places objects into a world scene:
 
@@ -135,15 +135,15 @@ Placement rules supported (best-effort):
 - `placement.preferNearTiles` + `preferDistance` + `preferMultiplier` (e.g. “prefer near river” via `water` tiles)
 - `placement.minDistance`
 
-### `pixel_smoke_test`
+### `pixel_manager(action="smoke_test")`
 
 Runs a short headless smoke test (run → wait → stop) and reports error-like log lines.
 
-### `pixel_export_preview`
+### `pixel_manager(action="export_preview")`
 
 Exports a lightweight PNG preview of a TileMapLayer (debug tile distribution image).
 
-### `pixel_macro_run`
+### `pixel_manager(action="macro_run")`
 
 Runs multiple steps (tilemap → world → objects) in order and records a manifest for
 reproducible re-runs.
@@ -152,13 +152,13 @@ Macro runner notes:
 
 - Builds a small **DAG** and runs steps in topological order (still single-threaded).
 - Records per-step `cacheKey` and can skip steps on cache hits.
-- Can append `pixel_export_preview` / `pixel_smoke_test` automatically when:
+- Can append `pixel_manager(action="export_preview")` / `pixel_manager(action="smoke_test")` automatically when:
   - `exportPreview=true` / `smokeTest=true` is passed, or
   - the goal text contains keywords like “preview” / “smoke test”.
 - When `SPEC_GEN_URL` is configured and `allowExternalTools=true`, the macro can use an
   external HTTP adapter to convert `goal` into a structured `plan[]` (validated).
 
-### `pixel_manifest_get`
+### `pixel_manager(action="manifest_get")`
 
 Loads the last recorded manifest (if present):
 
@@ -169,7 +169,7 @@ Loads the last recorded manifest (if present):
 The pixel spec parser accepts both `camelCase` and `snake_case` field names.
 Unknown fields are ignored (they do not cause errors).
 
-### Tilemap spec (`pixel_tilemap_generate`)
+### Tilemap spec (`pixel_manager(action="tilemap_generate")`)
 
 - `name` (string, required)
 - `theme` (string, optional)
@@ -180,7 +180,7 @@ Unknown fields are ignored (they do not cause errors).
   `res://assets/generated/tilesets/<name>/<name>.*`)
 - `sourceAsepritePath` (string, optional)
 
-### World spec (`pixel_world_generate` / `pixel_layer_ensure`)
+### World spec (`pixel_manager(action="world_generate")` / `pixel_manager(action="layer_ensure")`)
 
 - `scenePath` (string, default: `res://scenes/generated/world/World.tscn`)
 - `tilesetPath` or `tilesetName`
@@ -208,7 +208,7 @@ Unknown fields are ignored (they do not cause errors).
     - `meander` (non-negative number, default: 8.0)
     - `searchRadius` (non-negative integer, default: 8)
 
-### Object spec (`pixel_object_generate` / `pixel_object_place`)
+### Object spec (`pixel_manager(action="object_generate")` / `pixel_manager(action="object_place")`)
 
 Each entry in `objects[]` supports:
 
@@ -222,7 +222,7 @@ Each entry in `objects[]` supports:
   - `defaultTag` (string, optional; preferred default animation name)
   - `fps` (positive number, optional; default: 8)
   - `loop` (boolean, optional; default: true; applied to all generated animations)
-- `placement` (used by `pixel_object_place`):
+- `placement` (used by `pixel_manager(action="object_place")`):
   - `density` (non-negative number, default: 0.1)
   - `onTiles` / `avoidTiles` / `preferNearTiles` (arrays of strings)
   - `preferDistance` (non-negative integer, default: 0)
@@ -233,11 +233,11 @@ Each entry in `objects[]` supports:
 
 These tools require `ALLOW_EXTERNAL_TOOLS=true`. They are not required for the pixel pipeline to work.
 
-### `aseprite_doctor`
+### `aseprite_manager(action="doctor")`
 
 Reports whether Aseprite can be found and (when enabled) which CLI flags appear supported.
 
-### `aseprite_export_spritesheet`
+### `aseprite_manager(action="export_sheet")`
 
 Exports an `.aseprite` file to a spritesheet PNG (and optional JSON) inside the project:
 
@@ -260,7 +260,7 @@ External tools are disabled by default.
 ### External image generation (optional)
 
 If `allowExternalTools=true` is passed to a tool, and `ALLOW_EXTERNAL_TOOLS=true` is set,
-`pixel_tilemap_generate` can call an HTTP image generator:
+`pixel_manager(action="tilemap_generate")` can call an HTTP image generator:
 
 - `IMAGE_GEN_URL=https://...` (POST JSON → returns PNG body)
   - `https:` is allowed for any host.
@@ -300,20 +300,20 @@ Behavior:
 
 Supported tools:
 
-- `pixel_tilemap_generate` (`imageGenMode="manual_drop"` for the tilesheet PNG)
-- `pixel_object_generate` (`imageGenMode="manual_drop"` for per-object sprite PNGs when `asepritePath` is omitted)
+- `pixel_manager(action="tilemap_generate")` (`imageGenMode="manual_drop"` for the tilesheet PNG)
+- `pixel_manager(action="object_generate")` (`imageGenMode="manual_drop"` for per-object sprite PNGs when `asepritePath` is omitted)
 
 ### External spec generation (optional)
 
 If `allowExternalTools=true` is passed and `ALLOW_EXTERNAL_TOOLS=true` is set,
-`pixel_goal_to_spec` (and `pixel_macro_run` when given `goal`) can call an HTTP spec generator:
+`pixel_manager(action="goal_to_spec")` (and `pixel_manager(action="macro_run")` when given `goal`) can call an HTTP spec generator:
 
 - `SPEC_GEN_URL=https://...` (POST JSON → returns JSON object)
 - Optional auth:
   - `SPEC_GEN_AUTH_HEADER=Authorization`
   - `SPEC_GEN_AUTH_VALUE=Bearer <token>`
 
-`pixel_macro_run` also supports:
+`pixel_manager(action="macro_run")` also supports:
 
 - `specGenTimeoutMs` (default: 30000)
 

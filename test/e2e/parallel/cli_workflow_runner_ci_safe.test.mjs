@@ -28,9 +28,9 @@ test('CLI workflow runner executes a minimal workflow (CI-safe) and exits 0', as
         { id: 'WF-001', title: 'tools/list', tool: 'tools/list', args: {} },
         {
           id: 'WF-002',
-          title: 'macro_manager list_macros',
-          tool: 'macro_manager',
-          args: { action: 'list_macros' },
+          title: 'workflow_manager macro.list',
+          tool: 'workflow_manager',
+          args: { action: 'macro.list' },
         },
       ],
     };

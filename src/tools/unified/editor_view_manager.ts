@@ -4,6 +4,7 @@ import path from 'path';
 import { assertEditorRpcAllowed } from '../../security.js';
 import {
   asNonEmptyString,
+  asOptionalBoolean,
   asOptionalNonNegativeInteger,
   asOptionalPositiveNumber,
   asRecord,
@@ -38,6 +39,9 @@ export function createEditorViewManagerHandler(
       'switch_screen',
       'edit_script',
       'add_breakpoint',
+      'list_open_scripts',
+      'panel.find',
+      'panel.read',
     ];
 
     if (!hasEditorConnection(ctx))
@@ -170,6 +174,144 @@ export function createEditorViewManagerHandler(
       );
       return await callBaseTool(baseHandlers, 'godot_rpc', {
         request_json: { method: 'script.add_breakpoint', params: rpcParams },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+    }
+
+    if (action === 'list_open_scripts') {
+      assertEditorRpcAllowed(
+        'script.list_open',
+        {},
+        ctx.getEditorProjectPath() ?? '',
+      );
+      return await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'script.list_open', params: {} },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+    }
+
+    if (action === 'panel.find') {
+      const rootPath = maybeGetString(
+        argsObj,
+        ['rootPath', 'root_path'],
+        'rootPath',
+      );
+      const nameContains = maybeGetString(
+        argsObj,
+        ['nameContains', 'name_contains'],
+        'nameContains',
+      );
+      const className = maybeGetString(
+        argsObj,
+        ['className', 'class_name'],
+        'className',
+      );
+      const textContains = maybeGetString(
+        argsObj,
+        ['textContains', 'text_contains'],
+        'textContains',
+      );
+
+      const visibleOnly =
+        asOptionalBoolean(argsObj.visibleOnly, 'visibleOnly') ??
+        asOptionalBoolean(argsObj.visible_only, 'visible_only');
+      const maxResults =
+        asOptionalNonNegativeInteger(argsObj.maxResults, 'maxResults') ??
+        asOptionalNonNegativeInteger(argsObj.max_results, 'max_results');
+      const maxNodes =
+        asOptionalNonNegativeInteger(argsObj.maxNodes, 'maxNodes') ??
+        asOptionalNonNegativeInteger(argsObj.max_nodes, 'max_nodes');
+      const includeTextPreview =
+        asOptionalBoolean(argsObj.includeTextPreview, 'includeTextPreview') ??
+        asOptionalBoolean(argsObj.include_text_preview, 'include_text_preview');
+
+      const rpcParams: Record<string, unknown> = {};
+      if (rootPath) rpcParams.root_path = rootPath;
+      if (nameContains) rpcParams.name_contains = nameContains;
+      if (className) rpcParams.class_name = className;
+      if (textContains) rpcParams.text_contains = textContains;
+      if (visibleOnly !== undefined) rpcParams.visible_only = visibleOnly;
+      if (maxResults !== undefined) rpcParams.max_results = maxResults;
+      if (maxNodes !== undefined) rpcParams.max_nodes = maxNodes;
+      if (includeTextPreview !== undefined)
+        rpcParams.include_text_preview = includeTextPreview;
+
+      assertEditorRpcAllowed(
+        'panel.find',
+        rpcParams,
+        ctx.getEditorProjectPath() ?? '',
+      );
+      return await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'panel.find', params: rpcParams },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+    }
+
+    if (action === 'panel.read') {
+      const panelPath = maybeGetString(
+        argsObj,
+        ['panelPath', 'panel_path', 'rootPath'],
+        'panelPath',
+      );
+      if (!panelPath) {
+        return {
+          ok: false,
+          summary: 'panel.read requires panelPath',
+          details: { required: ['panelPath'] },
+        };
+      }
+
+      const visibleOnly =
+        asOptionalBoolean(argsObj.visibleOnly, 'visibleOnly') ??
+        asOptionalBoolean(argsObj.visible_only, 'visible_only');
+      const includePaths =
+        asOptionalBoolean(argsObj.includePaths, 'includePaths') ??
+        asOptionalBoolean(argsObj.include_paths, 'include_paths');
+      const includeTextEdits =
+        asOptionalBoolean(argsObj.includeTextEdits, 'includeTextEdits') ??
+        asOptionalBoolean(argsObj.include_text_edits, 'include_text_edits');
+      const includeTreeItems =
+        asOptionalBoolean(argsObj.includeTreeItems, 'includeTreeItems') ??
+        asOptionalBoolean(argsObj.include_tree_items, 'include_tree_items');
+      const includeItemLists =
+        asOptionalBoolean(argsObj.includeItemLists, 'includeItemLists') ??
+        asOptionalBoolean(argsObj.include_item_lists, 'include_item_lists');
+      const maxNodes =
+        asOptionalNonNegativeInteger(argsObj.maxNodes, 'maxNodes') ??
+        asOptionalNonNegativeInteger(argsObj.max_nodes, 'max_nodes');
+      const maxChars =
+        asOptionalNonNegativeInteger(argsObj.maxChars, 'maxChars') ??
+        asOptionalNonNegativeInteger(argsObj.max_chars, 'max_chars');
+      const maxItems =
+        asOptionalNonNegativeInteger(argsObj.maxItems, 'maxItems') ??
+        asOptionalNonNegativeInteger(argsObj.max_items, 'max_items');
+      const returnEntries =
+        asOptionalBoolean(argsObj.returnEntries, 'returnEntries') ??
+        asOptionalBoolean(argsObj.return_entries, 'return_entries');
+
+      const rpcParams: Record<string, unknown> = {
+        panel_path: panelPath,
+      };
+      if (visibleOnly !== undefined) rpcParams.visible_only = visibleOnly;
+      if (includePaths !== undefined) rpcParams.include_paths = includePaths;
+      if (includeTextEdits !== undefined)
+        rpcParams.include_text_edits = includeTextEdits;
+      if (includeTreeItems !== undefined)
+        rpcParams.include_tree_items = includeTreeItems;
+      if (includeItemLists !== undefined)
+        rpcParams.include_item_lists = includeItemLists;
+      if (maxNodes !== undefined) rpcParams.max_nodes = maxNodes;
+      if (maxChars !== undefined) rpcParams.max_chars = maxChars;
+      if (maxItems !== undefined) rpcParams.max_items = maxItems;
+      if (returnEntries !== undefined) rpcParams.return_entries = returnEntries;
+
+      assertEditorRpcAllowed(
+        'panel.read',
+        rpcParams,
+        ctx.getEditorProjectPath() ?? '',
+      );
+      return await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'panel.read', params: rpcParams },
         ...(timeoutMs ? { timeoutMs } : {}),
       });
     }

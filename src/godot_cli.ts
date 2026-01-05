@@ -194,6 +194,21 @@ function isWslEnv(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
 }
 
+const WINDOWS_GODOT_EXE_PATTERNS = [
+  /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
+  /^Godot(_console)?\.exe$/iu,
+];
+
+const WINDOWS_GODOT_PORTABLE_EXE_PATTERNS = [
+  /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
+  /^Godot.*(_console)?\.exe$/iu,
+];
+
+const LINUX_GODOT_BIN_PATTERNS = [
+  /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
+  /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
+];
+
 export function discoverBundledGodotExecutables(
   platform: NodeJS.Platform,
   cwd: string,
@@ -209,23 +224,14 @@ export function discoverBundledGodotExecutables(
     roots.push({ origin: 'auto:bundle:parent', dir: parent });
   }
 
-  const windowsExePatterns = [
-    /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
-    /^Godot(_console)?\.exe$/iu,
-  ];
-  const linuxBinPatterns = [
-    /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
-    /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
-  ];
-
   const isWsl = opts.isWsl ?? isWslEnv(process.env);
   const patterns =
     platform === 'win32'
-      ? windowsExePatterns
+      ? WINDOWS_GODOT_EXE_PATTERNS
       : platform === 'linux'
         ? isWsl
-          ? [...linuxBinPatterns, ...windowsExePatterns]
-          : linuxBinPatterns
+          ? [...LINUX_GODOT_BIN_PATTERNS, ...WINDOWS_GODOT_EXE_PATTERNS]
+          : LINUX_GODOT_BIN_PATTERNS
         : [];
   if (patterns.length === 0) return [];
 
@@ -325,11 +331,7 @@ export async function detectGodotPath(
 
   if (cwd) {
     if (osPlatform === 'win32') {
-      const exePatterns = [
-        /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
-        /^Godot(_console)?\.exe$/iu,
-      ];
-      for (const pattern of exePatterns) {
+      for (const pattern of WINDOWS_GODOT_EXE_PATTERNS) {
         for (const p of discoverExecutables(
           join(cwd, '.tmp', 'godot'),
           pattern,
@@ -346,11 +348,7 @@ export async function detectGodotPath(
         }
       }
     } else if (osPlatform === 'linux') {
-      const binPatterns = [
-        /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
-        /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
-      ];
-      for (const pattern of binPatterns) {
+      for (const pattern of LINUX_GODOT_BIN_PATTERNS) {
         for (const p of discoverExecutables(
           join(cwd, '.tmp', 'godot'),
           pattern,
@@ -430,10 +428,6 @@ export async function detectGodotPath(
         `${userProfile}\\AppData\\Local\\Godot Engine\\Godot.exe`,
       );
 
-      const portableExePatterns = [
-        /^Godot_v.*_win(64|32)(_console)?\.exe$/iu,
-        /^Godot.*(_console)?\.exe$/iu,
-      ];
       const portableDirs = [
         join(userProfile, 'Downloads'),
         join(userProfile, 'Desktop'),
@@ -441,7 +435,7 @@ export async function detectGodotPath(
         join(userProfile, 'Godot'),
       ];
       for (const dir of portableDirs) {
-        for (const pattern of portableExePatterns) {
+        for (const pattern of WINDOWS_GODOT_PORTABLE_EXE_PATTERNS) {
           for (const p of discoverExecutables(dir, pattern, 1)) {
             pushCandidate('auto:portable', p);
           }
@@ -464,10 +458,6 @@ export async function detectGodotPath(
     if (home) {
       pushCandidate('auto:platform', `${home}/.local/bin/godot`);
 
-      const portableBinPatterns = [
-        /^Godot_v.*_linux\.(x86_64|x86_32|arm64|arm32)(_console)?$/iu,
-        /^Godot(\.x86_64|\.x86_32|\.arm64|\.arm32)?$/iu,
-      ];
       const portableDirs = [
         join(home, 'Downloads'),
         join(home, 'Desktop'),
@@ -475,7 +465,7 @@ export async function detectGodotPath(
         join(home, '.local', 'share', 'godot'),
       ];
       for (const dir of portableDirs) {
-        for (const pattern of portableBinPatterns) {
+        for (const pattern of LINUX_GODOT_BIN_PATTERNS) {
           for (const p of discoverExecutables(dir, pattern, 1)) {
             pushCandidate('auto:portable', p);
           }

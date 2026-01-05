@@ -117,25 +117,28 @@ async function main() {
       rootNodeType: 'Node2D',
     });
 
-    await client.callToolOrThrow('add_node', {
+    await client.callToolOrThrow('godot_scene_manager', {
+      action: 'create',
       projectPath,
       scenePath: smokeScenePath,
       parentNodePath: 'root',
       nodeType: 'Node',
       nodeName: 'Emitter',
-      properties: {},
+      props: {},
     });
 
-    await client.callToolOrThrow('add_node', {
+    await client.callToolOrThrow('godot_scene_manager', {
+      action: 'create',
       projectPath,
       scenePath: smokeScenePath,
       parentNodePath: 'root',
       nodeType: 'Node',
       nodeName: 'Receiver',
-      properties: {},
+      props: {},
     });
 
-    await client.callToolOrThrow('save_scene', {
+    await client.callToolOrThrow('godot_workspace_manager', {
+      action: 'save_scene',
       projectPath,
       scenePath: smokeScenePath,
     });
@@ -198,7 +201,10 @@ async function main() {
       },
     });
 
-    await client.callToolOrThrow('get_project_info', { projectPath });
+    await client.callToolOrThrow('godot_project_config_manager', {
+      action: 'project_info.get',
+      projectPath,
+    });
 
     console.log('Smoke test passed.');
   } finally {

@@ -20,15 +20,23 @@ import {
 
 export type MacroStep = { tool: string; args: Record<string, unknown> };
 
-export const SUPPORTED_PIXEL_MACRO_TOOLS = new Set([
-  'pixel_tilemap_generate',
-  'pixel_world_generate',
-  'pixel_layer_ensure',
-  'pixel_object_generate',
-  'pixel_object_place',
-  'pixel_export_preview',
-  'pixel_smoke_test',
-] as const);
+const LEGACY_PIXEL_TOOL_TO_ACTION: Record<string, string> = {
+  pixel_tilemap_generate: 'tilemap_generate',
+  pixel_world_generate: 'world_generate',
+  pixel_layer_ensure: 'layer_ensure',
+  pixel_object_generate: 'object_generate',
+  pixel_object_place: 'object_place',
+  pixel_export_preview: 'export_preview',
+  pixel_smoke_test: 'smoke_test',
+};
+
+export const SUPPORTED_PIXEL_MACRO_TOOLS = new Set(
+  Object.keys(LEGACY_PIXEL_TOOL_TO_ACTION),
+);
+
+export const SUPPORTED_PIXEL_MACRO_ACTIONS = new Set(
+  Object.values(LEGACY_PIXEL_TOOL_TO_ACTION),
+);
 
 export type GoalToSpecOutputs = {
   adapter: 'builtin' | 'http' | 'explicit_plan';
@@ -72,16 +80,25 @@ export function deriveSpecsFromPlan(
   let worldScenePath: string | null = null;
 
   for (const step of plan) {
-    if (step.tool === 'pixel_tilemap_generate') {
+    const action = (() => {
+      if (step.tool === 'pixel_manager') {
+        const raw =
+          typeof step.args.action === 'string' ? step.args.action : null;
+        return raw ? raw.trim().toLowerCase() : null;
+      }
+      return LEGACY_PIXEL_TOOL_TO_ACTION[step.tool] ?? null;
+    })();
+
+    if (action === 'tilemap_generate') {
       const spec = asOptionalRecord(step.args.spec, 'plan[].args.spec') ?? null;
       if (spec) tilemapSpec = spec;
-    } else if (step.tool === 'pixel_world_generate') {
+    } else if (action === 'world_generate') {
       const spec = asOptionalRecord(step.args.spec, 'plan[].args.spec') ?? null;
       if (spec) worldSpec = spec;
-    } else if (step.tool === 'pixel_object_generate') {
+    } else if (action === 'object_generate') {
       const spec = asOptionalRecord(step.args.spec, 'plan[].args.spec') ?? null;
       if (spec) objectSpec = spec;
-    } else if (step.tool === 'pixel_object_place') {
+    } else if (action === 'object_place') {
       const p = asOptionalString(
         step.args.worldScenePath,
         'plan[].worldScenePath',
@@ -109,7 +126,37 @@ export function parseMacroPlanInput(
   for (let i = 0; i < value.length; i += 1) {
     const s = asRecord(value[i], `${fieldName}[${i}]`);
     const tool = asNonEmptyString(s.tool, `${fieldName}[${i}].tool`);
-    if (!SUPPORTED_PIXEL_MACRO_TOOLS.has(tool as never)) {
+    const stepArgs = asOptionalRecord(s.args, `${fieldName}[${i}].args`) ?? {};
+
+    const action = (() => {
+      if (tool === 'pixel_manager') {
+        const raw = asNonEmptyString(
+          stepArgs.action,
+          `${fieldName}[${i}].args.action`,
+        );
+        const normalized = raw.trim().toLowerCase();
+        if (!SUPPORTED_PIXEL_MACRO_ACTIONS.has(normalized)) {
+          throw new ValidationError(
+            `${fieldName}[${i}].args.action`,
+            `Unsupported pixel_manager action "${raw}"`,
+            'string',
+          );
+        }
+        return normalized;
+      }
+
+      if (!SUPPORTED_PIXEL_MACRO_TOOLS.has(tool as never)) {
+        throw new ValidationError(
+          `${fieldName}[${i}].tool`,
+          `Unsupported macro step tool "${tool}"`,
+          'string',
+        );
+      }
+
+      return LEGACY_PIXEL_TOOL_TO_ACTION[tool] ?? null;
+    })();
+
+    if (!action) {
       throw new ValidationError(
         `${fieldName}[${i}].tool`,
         `Unsupported macro step tool "${tool}"`,
@@ -117,31 +164,28 @@ export function parseMacroPlanInput(
       );
     }
 
-    const stepArgs = asOptionalRecord(s.args, `${fieldName}[${i}].args`) ?? {};
+    const canonicalArgs: Record<string, unknown> = { ...stepArgs, action };
 
     // Minimal schema validation to fail early with a helpful error.
-    if (tool === 'pixel_tilemap_generate') {
-      const spec = asRecord(stepArgs.spec, `${fieldName}[${i}].args.spec`);
+    if (action === 'tilemap_generate') {
+      const spec = asRecord(canonicalArgs.spec, `${fieldName}[${i}].args.spec`);
       void parseTilemapSpec(spec, 16);
-    } else if (
-      tool === 'pixel_world_generate' ||
-      tool === 'pixel_layer_ensure'
-    ) {
-      const spec = asRecord(stepArgs.spec, `${fieldName}[${i}].args.spec`);
+    } else if (action === 'world_generate' || action === 'layer_ensure') {
+      const spec = asRecord(canonicalArgs.spec, `${fieldName}[${i}].args.spec`);
       void parseWorldSpecInput(spec);
-    } else if (tool === 'pixel_object_generate') {
-      const spec = asRecord(stepArgs.spec, `${fieldName}[${i}].args.spec`);
+    } else if (action === 'object_generate') {
+      const spec = asRecord(canonicalArgs.spec, `${fieldName}[${i}].args.spec`);
       void validateObjectSpecInput(spec, 'spec');
-    } else if (tool === 'pixel_object_place') {
+    } else if (action === 'object_place') {
       void asNonEmptyString(
-        stepArgs.worldScenePath,
+        canonicalArgs.worldScenePath,
         `${fieldName}[${i}].args.worldScenePath`,
       );
-      const spec = asRecord(stepArgs.spec, `${fieldName}[${i}].args.spec`);
+      const spec = asRecord(canonicalArgs.spec, `${fieldName}[${i}].args.spec`);
       void validateObjectSpecInput(spec, 'spec');
     }
 
-    plan.push({ tool, args: stepArgs });
+    plan.push({ tool: 'pixel_manager', args: canonicalArgs });
   }
 
   return plan;
@@ -303,8 +347,9 @@ export function normalizeMacroPlanFromGoal(goal: string): MacroStep[] {
 
   if (runAll || wantsTilemap) {
     steps.push({
-      tool: 'pixel_tilemap_generate',
+      tool: 'pixel_manager',
       args: {
+        action: 'tilemap_generate',
         spec: {
           name: 'pixel_base',
           tileSize: 16,
@@ -317,8 +362,9 @@ export function normalizeMacroPlanFromGoal(goal: string): MacroStep[] {
 
   if (runAll || wantsWorld) {
     steps.push({
-      tool: 'pixel_world_generate',
+      tool: 'pixel_manager',
       args: {
+        action: 'world_generate',
         spec: {
           scenePath: 'res://scenes/generated/world/World.tscn',
           tilesetName: 'pixel_base',
@@ -389,10 +435,14 @@ export function normalizeMacroPlanFromGoal(goal: string): MacroStep[] {
       });
     }
 
-    steps.push({ tool: 'pixel_object_generate', args: { spec: { objects } } });
     steps.push({
-      tool: 'pixel_object_place',
+      tool: 'pixel_manager',
+      args: { action: 'object_generate', spec: { objects } },
+    });
+    steps.push({
+      tool: 'pixel_manager',
       args: {
+        action: 'object_place',
         worldScenePath: 'res://scenes/generated/world/World.tscn',
         spec: { objects },
       },

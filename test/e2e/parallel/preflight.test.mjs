@@ -7,7 +7,7 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -19,7 +19,7 @@ test('godot_preflight returns ok=false when project.godot is missing', async () 
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const res = await client.callTool('godot_preflight', { projectPath });
     assert.equal(res.ok, false);
     assert.match(res.summary, /Preflight failed/u);
@@ -43,7 +43,7 @@ test('godot_preflight returns ok=true for a minimal project (Godot check skipped
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const res = await client.callToolOrThrow('godot_preflight', {
       projectPath,
     });
@@ -98,7 +98,7 @@ test('godot_preflight detects addon as disabled when present but not enabled', a
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const res = await client.callToolOrThrow('godot_preflight', {
       projectPath,
     });
@@ -129,7 +129,7 @@ test('godot_preflight detects addon as ok when present and enabled', async () =>
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const res = await client.callToolOrThrow('godot_preflight', {
       projectPath,
     });

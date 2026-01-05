@@ -52,7 +52,7 @@ export function createMacroManagerToolHandlers(
       if (action === 'list_macros') {
         return {
           ok: true,
-          summary: 'macro_manager: available macros',
+          summary: 'workflow_manager (macro): available macros',
           details: { macros: getMacroList() },
         };
       }
@@ -66,13 +66,13 @@ export function createMacroManagerToolHandlers(
         if (!macro) {
           return {
             ok: false,
-            summary: `macro_manager: unknown macroId "${macroId}"`,
+            summary: `workflow_manager (macro): unknown macroId "${macroId}"`,
             details: { macroId, supportedMacros: getMacroList() },
           };
         }
         return {
           ok: true,
-          summary: `macro_manager: ${macroId}`,
+          summary: `workflow_manager (macro): ${macroId}`,
           details: {
             macro: {
               id: macro.id,
@@ -89,16 +89,16 @@ export function createMacroManagerToolHandlers(
         if (!manifest) {
           return {
             ok: false,
-            summary: 'macro_manager: manifest not found',
+            summary: 'workflow_manager (macro): manifest not found',
             details: {
               manifestPath: 'res://.godot_mcp/macro_manifest.json',
-              suggestions: ['Run macro_manager(action="run") first.'],
+              suggestions: ['Run workflow_manager(action="macro.run") first.'],
             },
           };
         }
         return {
           ok: true,
-          summary: 'macro_manager: manifest loaded',
+          summary: 'workflow_manager (macro): manifest loaded',
           details: {
             manifestPath: 'res://.godot_mcp/macro_manifest.json',
             manifest,
@@ -112,7 +112,7 @@ export function createMacroManagerToolHandlers(
         if (!macroIds.length) {
           return {
             ok: false,
-            summary: 'macro_manager: missing macroId/macros',
+            summary: 'workflow_manager (macro): missing macroId/macros',
             details: {
               suggestions: [
                 'Provide macroId (string) or macros (array of strings/objects).',
@@ -134,7 +134,7 @@ export function createMacroManagerToolHandlers(
           if (!macro) {
             return {
               ok: false,
-              summary: `macro_manager: unknown macroId "${id}"`,
+              summary: `workflow_manager (macro): unknown macroId "${id}"`,
               details: { macroId: id, supportedMacros: getMacroList() },
             };
           }
@@ -149,7 +149,7 @@ export function createMacroManagerToolHandlers(
 
         return {
           ok: true,
-          summary: 'macro_manager: plan generated',
+          summary: 'workflow_manager (macro): plan generated',
           details: {
             ...(pixel
               ? {
@@ -241,10 +241,10 @@ export function createMacroManagerToolHandlers(
         if (!scenes.length) {
           return {
             ok: false,
-            summary: 'macro_manager: no scenes to validate',
+            summary: 'workflow_manager (macro): no scenes to validate',
             details: {
               suggestions: [
-                'Pass scenes=[...] or run macro_manager(action="run") first.',
+                'Pass scenes=[...] or run workflow_manager(action="macro.run") first.',
               ],
             },
           };
@@ -265,7 +265,7 @@ export function createMacroManagerToolHandlers(
         return resp.ok
           ? {
               ok: true,
-              summary: 'macro_manager: scenes validated',
+              summary: 'workflow_manager (macro): scenes validated',
               details: { scenes, response: resp.details },
               logs: resp.logs,
             }
@@ -277,9 +277,9 @@ export function createMacroManagerToolHandlers(
         if (!manifest) {
           return {
             ok: false,
-            summary: 'macro_manager: no manifest to resume',
+            summary: 'workflow_manager (macro): no manifest to resume',
             details: {
-              suggestions: ['Run macro_manager(action="run") first.'],
+              suggestions: ['Run workflow_manager(action="macro.run") first.'],
             },
           };
         }
@@ -289,7 +289,7 @@ export function createMacroManagerToolHandlers(
         if (!pending.length) {
           return {
             ok: true,
-            summary: 'macro_manager: nothing to resume',
+            summary: 'workflow_manager (macro): nothing to resume',
             details: { runId: manifest.runId },
           };
         }
@@ -306,7 +306,7 @@ export function createMacroManagerToolHandlers(
       }
 
       if (action !== 'run') {
-        return supportedActionError('macro_manager', action, [
+        return supportedActionError('workflow_manager', action, [
           'list_macros',
           'describe_macro',
           'plan',
@@ -323,7 +323,7 @@ export function createMacroManagerToolHandlers(
       if (!macroIds.length) {
         return {
           ok: false,
-          summary: 'macro_manager: missing macroId/macros',
+          summary: 'workflow_manager (macro): missing macroId/macros',
           details: {
             suggestions: [
               'Provide macroId (string) or macros (array of strings/objects).',
@@ -338,7 +338,7 @@ export function createMacroManagerToolHandlers(
         (pixel?.forceRegenerate ?? false);
       const forceRegenerate = forceRegenerateRequested;
       if (!overwriteAllowed(forceRegenerate)) {
-        return forceRegenerateBlocked('macro_manager');
+        return forceRegenerateBlocked('workflow_manager');
       }
 
       const dryRun = asOptionalBoolean(argsObj.dryRun, 'dryRun') ?? false;
@@ -375,7 +375,7 @@ export function createMacroManagerToolHandlers(
         if (!macro) {
           return {
             ok: false,
-            summary: `macro_manager: unknown macroId "${id}"`,
+            summary: `workflow_manager (macro): unknown macroId "${id}"`,
             details: { macroId: id, supportedMacros: getMacroList() },
           };
         }
@@ -391,7 +391,7 @@ export function createMacroManagerToolHandlers(
       if (dryRun) {
         return {
           ok: true,
-          summary: 'macro_manager: dryRun (no changes applied)',
+          summary: 'workflow_manager (macro): dryRun (no changes applied)',
           details: {
             ...(pixel
               ? {
@@ -451,7 +451,7 @@ export function createMacroManagerToolHandlers(
           await writeMacroManifest(projectPath, manifest);
           return {
             ok: false,
-            summary: 'macro_manager: pixel_manager failed',
+            summary: 'workflow_manager (macro): pixel_manager failed',
             details: { runId, manifest },
             logs: resp.logs,
           };
@@ -477,12 +477,12 @@ export function createMacroManagerToolHandlers(
           return {
             ok: false,
             summary:
-              'macro_manager: pixel pipeline did not produce a world scene',
+              'workflow_manager (macro): pixel pipeline did not produce a world scene',
             details: {
               runId,
               manifest,
               suggestions: [
-                'Ensure your pixel goal/plan includes pixel_world_generate (or pass an explicit plan).',
+                'Ensure your pixel goal/plan includes pixel_manager(action="world_generate") (or pass an explicit plan).',
               ],
             },
           };
@@ -539,7 +539,7 @@ export function createMacroManagerToolHandlers(
             await writeMacroManifest(projectPath, manifest);
             return {
               ok: false,
-              summary: `macro_manager: failed (${plan.macroId})`,
+              summary: `workflow_manager (macro): failed (${plan.macroId})`,
               details: { runId, manifest },
               logs: resp.logs,
             };
@@ -569,12 +569,12 @@ export function createMacroManagerToolHandlers(
           return {
             ok: false,
             summary:
-              'macro_manager: composeMainScene requires a pixel world scene',
+              'workflow_manager (macro): composeMainScene requires a pixel world scene',
             details: {
               runId,
               manifest,
               suggestions: [
-                'Provide pixel.goal/pixel.plan so macro_manager can generate a world scene first.',
+                'Provide pixel.goal/pixel.plan so workflow_manager can generate a world scene first.',
               ],
             },
           };
@@ -599,7 +599,7 @@ export function createMacroManagerToolHandlers(
           return {
             ok: false,
             summary:
-              'macro_manager: composeMainScene failed (missing required outputs)',
+              'workflow_manager (macro): composeMainScene failed (missing required outputs)',
             details: {
               runId,
               missing,
@@ -686,7 +686,7 @@ export function createMacroManagerToolHandlers(
           await writeMacroManifest(projectPath, manifest);
           return {
             ok: false,
-            summary: 'macro_manager: composeMainScene failed',
+            summary: 'workflow_manager (macro): composeMainScene failed',
             details: { runId, manifest },
             logs: (resp as ToolResponse).logs,
           };
@@ -698,7 +698,7 @@ export function createMacroManagerToolHandlers(
 
       return {
         ok: true,
-        summary: 'macro_manager: run complete',
+        summary: 'workflow_manager (macro): run complete',
         details: {
           runId,
           manifestPath: 'res://.godot_mcp/macro_manifest.json',

@@ -93,7 +93,9 @@ export async function runTilemapGenerate(
     : undefined;
 
   if (!overwriteAllowed(forceRegenerate)) {
-    const response = forceRegenerateBlocked('pixel_tilemap_generate');
+    const response = forceRegenerateBlocked(
+      'pixel_manager(action="tilemap_generate")',
+    );
     return {
       response,
       step: {
@@ -280,7 +282,7 @@ export async function runTilemapGenerate(
             export: asepriteExport,
             suggestions: [
               ...(exportResult.suggestions ?? []),
-              'Run aseprite_doctor to check detection and supported flags.',
+              'Run aseprite_manager(action="doctor") to check detection and supported flags.',
             ],
           },
         };
@@ -347,7 +349,7 @@ export async function runTilemapGenerate(
                 : String(error),
             suggestions: [
               `Add a PNG at ${output.sheetPngPath} (expected size: ${width}x${height}).`,
-              'Re-run pixel_tilemap_generate with the same spec once the file exists.',
+              'Re-run pixel_manager(action="tilemap_generate") with the same spec once the file exists.',
               'Or omit imageGenMode/manual_drop to use the builtin placeholder generator.',
             ],
           },

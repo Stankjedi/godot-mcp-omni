@@ -1,7 +1,6 @@
 {
   "$schema": "./workflow.schema.json",
   "schemaVersion": 1,
-  "projectPath": "../test_project",
   "steps": [
     {
       "id": "ASE-001",

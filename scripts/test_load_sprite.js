@@ -104,7 +104,8 @@ async function main() {
 
     // Step 3: Add Sprite2D
     console.log('Step 3: Adding Sprite2D...');
-    await client.callToolOrThrow('add_node', {
+    await client.callToolOrThrow('godot_scene_manager', {
+      action: 'create',
       projectPath,
       scenePath: 'test/FinalSpriteTest.tscn',
       parentNodePath: 'root',
@@ -115,7 +116,8 @@ async function main() {
 
     // Step 4: Load sprite
     console.log('Step 4: Loading texture into sprite...');
-    const loadResult = await client.callToolOrThrow('load_sprite', {
+    const loadResult = await client.callToolOrThrow('godot_asset_manager', {
+      action: 'load_texture',
       projectPath,
       scenePath: 'test/FinalSpriteTest.tscn',
       nodePath: 'root/TestSprite',

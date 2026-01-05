@@ -103,7 +103,7 @@ func op_spriteframes_from_aseprite_json(params: Dictionary) -> Dictionary:
 				"aseprite_json_path": res_json,
 				"suggestions": [
 					"Add at least one frame tag in Aseprite (e.g. \"idle\").",
-					"Re-export with --list-tags support enabled (aseprite_doctor can confirm capabilities).",
+					"Re-export with --list-tags support enabled (aseprite_manager(action=\"doctor\") can confirm capabilities).",
 				],
 			}
 		)
@@ -198,4 +198,3 @@ func op_spriteframes_from_aseprite_json(params: Dictionary) -> Dictionary:
 			"loop": loop,
 		}
 	)
-

@@ -16,9 +16,9 @@ export const DEFAULT_CI_SAFE_SCENARIOS: ScenarioDefinition[] = [
   },
   {
     id: 'SCN-002',
-    title: 'macro_manager list_macros (CI-safe)',
-    tool: 'macro_manager',
-    args: { action: 'list_macros' },
+    title: 'workflow_manager macro.list (CI-safe)',
+    tool: 'workflow_manager',
+    args: { action: 'macro.list' },
     expectOk: true,
   },
   {
@@ -30,9 +30,10 @@ export const DEFAULT_CI_SAFE_SCENARIOS: ScenarioDefinition[] = [
   },
   {
     id: 'SCN-004',
-    title: 'pixel_goal_to_spec builtin (CI-safe)',
-    tool: 'pixel_goal_to_spec',
+    title: 'pixel_manager goal_to_spec builtin (CI-safe)',
+    tool: 'pixel_manager',
     args: {
+      action: 'goal_to_spec',
       projectPath: '$PROJECT_PATH',
       goal: 'tilemap + world (size 16x16), place trees density 0.2',
       allowExternalTools: false,
@@ -41,12 +42,14 @@ export const DEFAULT_CI_SAFE_SCENARIOS: ScenarioDefinition[] = [
   },
   {
     id: 'SCN-005',
-    title: 'pixel_manager goal_to_spec forwarding (CI-safe)',
+    title: 'pixel_manager macro_run dryRun (CI-safe)',
     tool: 'pixel_manager',
     args: {
-      action: 'goal_to_spec',
+      action: 'macro_run',
       projectPath: '$PROJECT_PATH',
-      goal: 'tilemap + world (size 16x16)',
+      goal: 'tilemap + world (size 16x16), place trees density 0.2',
+      dryRun: true,
+      allowExternalTools: false,
     },
     expectOk: true,
   },

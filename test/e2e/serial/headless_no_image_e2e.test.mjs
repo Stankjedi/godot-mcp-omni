@@ -9,7 +9,7 @@ import {
   mkdtemp,
   resolveResPath,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -93,7 +93,7 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       const versionTool = await client.callToolOrThrow('get_godot_version', {});
       assert.equal(versionTool.ok, true);
@@ -281,7 +281,8 @@ test(
       });
 
       const worldScenePath = 'res://scenes/generated/world/HeadlessWorld.tscn';
-      await client.callToolOrThrow('pixel_world_generate', {
+      await client.callToolOrThrow('pixel_manager', {
+        action: 'world_generate',
         projectPath,
         spec: {
           scenePath: worldScenePath,
@@ -291,7 +292,8 @@ test(
         },
       });
 
-      const placeResp = await client.callToolOrThrow('pixel_object_place', {
+      const placeResp = await client.callToolOrThrow('pixel_manager', {
+        action: 'object_place',
         projectPath,
         worldScenePath,
         seed: 42,
@@ -360,7 +362,7 @@ test(
 );
 
 test(
-  'macro_manager run with pixel plan (no image-generation steps) composes Main scene',
+  'workflow_manager macro.run with pixel plan (no image-generation steps) composes Main scene',
   { skip: !process.env.GODOT_PATH },
   async () => {
     const projectPath = mkdtemp('godot-mcp-omni-macro-noimg-');
@@ -401,7 +403,7 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       await client.callToolOrThrow('godot_headless_op', {
         projectPath,
@@ -415,14 +417,15 @@ test(
       });
 
       const worldScenePath = 'res://scenes/generated/world/MacroWorld.tscn';
-      const resp = await client.callToolOrThrow('macro_manager', {
-        action: 'run',
+      const resp = await client.callToolOrThrow('workflow_manager', {
+        action: 'macro.run',
         projectPath,
         pixel: {
           plan: [
             {
-              tool: 'pixel_world_generate',
+              tool: 'pixel_manager',
               args: {
+                action: 'world_generate',
                 spec: {
                   scenePath: worldScenePath,
                   tilesetPath: pixelTilesetPath,

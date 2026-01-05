@@ -1,6 +1,8 @@
 import path from 'path';
 import fs from 'fs/promises';
 
+import axios from 'axios';
+
 import {
   assertEditorRpcAllowed,
   resolveInsideProject,
@@ -44,6 +46,7 @@ export function createWorkspaceManagerHandler(
     const argsObj = asRecord(args, 'args');
     const actionRaw = asNonEmptyString(argsObj.action, 'action');
     const action = normalizeAction(actionRaw);
+    const timeoutMs = asOptionalNumber(argsObj.timeoutMs, 'timeoutMs');
 
     const supportedActions = [
       'launch',
@@ -52,11 +55,27 @@ export function createWorkspaceManagerHandler(
       'run',
       'stop',
       'smoke_test',
+      'new_scene',
       'open_scene',
+      'save_scene',
       'save_all',
       'restart',
+      'get_state',
+      'guidelines.search',
+      'guidelines.get_section',
+      'docs.search',
+      'docs.get_class',
       'doctor_report',
     ];
+
+    const fileExists = async (absPath: string): Promise<boolean> => {
+      try {
+        await fs.stat(absPath);
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
     const resolveDoctorReportPath = (
       projectPath: string,
@@ -181,6 +200,73 @@ export function createWorkspaceManagerHandler(
       });
     }
 
+    if (action === 'new_scene') {
+      const projectPath = maybeGetString(
+        argsObj,
+        ['projectPath', 'project_path'],
+        'projectPath',
+      );
+      const scenePath = maybeGetString(
+        argsObj,
+        ['scenePath', 'scene_path', 'path'],
+        'scenePath',
+      );
+      if (!projectPath || !scenePath) {
+        return {
+          ok: false,
+          summary: 'new_scene requires projectPath and scenePath',
+          details: { required: ['projectPath', 'scenePath'] },
+        };
+      }
+      ctx.assertValidProject(projectPath);
+
+      const rootNodeType =
+        maybeGetString(
+          argsObj,
+          ['rootNodeType', 'root_type', 'rootType'],
+          'rootNodeType',
+        ) ?? 'Node3D';
+
+      const steps: ToolResponse[] = [];
+      const create = await callBaseTool(baseHandlers, 'create_scene', {
+        projectPath,
+        scenePath,
+        rootNodeType,
+      });
+      steps.push(create);
+      if (!create.ok) return create;
+
+      if (hasEditorConnection(ctx)) {
+        const rpcParams: Record<string, unknown> = { path: scenePath };
+        assertEditorRpcAllowed(
+          'open_scene',
+          rpcParams,
+          ctx.getEditorProjectPath() ?? '',
+        );
+        const openResp = await callBaseTool(baseHandlers, 'godot_rpc', {
+          request_json: { method: 'open_scene', params: rpcParams },
+        });
+        steps.push(openResp);
+        if (!openResp.ok) {
+          return {
+            ok: false,
+            summary: 'new_scene created but failed to open in editor',
+            details: { projectPath, scenePath, rootNodeType, steps },
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        summary: 'new_scene completed',
+        details: { projectPath, scenePath, rootNodeType, steps },
+      };
+    }
+
+    if (action === 'save_scene') {
+      return await callBaseTool(baseHandlers, 'save_scene', { ...argsObj });
+    }
+
     if (action === 'save_all') {
       if (!hasEditorConnection(ctx)) return requireEditorConnected('save_all');
       assertEditorRpcAllowed(
@@ -191,6 +277,38 @@ export function createWorkspaceManagerHandler(
       return await callBaseTool(baseHandlers, 'godot_rpc', {
         request_json: { method: 'editor.save_all', params: {} },
       });
+    }
+
+    if (action === 'get_state') {
+      if (!hasEditorConnection(ctx)) return requireEditorConnected('get_state');
+
+      assertEditorRpcAllowed(
+        'get_current_scene',
+        {},
+        ctx.getEditorProjectPath() ?? '',
+      );
+      const current = await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'get_current_scene', params: {} },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+      if (!current.ok) return current;
+
+      assertEditorRpcAllowed(
+        'list_open_scenes',
+        {},
+        ctx.getEditorProjectPath() ?? '',
+      );
+      const openScenes = await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'list_open_scenes', params: {} },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+      if (!openScenes.ok) return openScenes;
+
+      return {
+        ok: true,
+        summary: 'get_state ok',
+        details: { current, openScenes },
+      };
     }
 
     if (action === 'run') {
@@ -691,6 +809,499 @@ export function createWorkspaceManagerHandler(
           reportPreview: previewLines,
         },
       };
+    }
+
+    if (action === 'guidelines.search' || action === 'guidelines.get_section') {
+      const projectPath = maybeGetString(
+        argsObj,
+        ['projectPath', 'project_path'],
+        'projectPath',
+      );
+      if (!projectPath) {
+        return {
+          ok: false,
+          summary: `${action} requires projectPath`,
+          details: { required: ['projectPath'] },
+        };
+      }
+      ctx.assertValidProject(projectPath);
+
+      const filePathInput =
+        asOptionalString(
+          (argsObj as Record<string, unknown>).guidelinesFilePath,
+          'guidelinesFilePath',
+        )?.trim() ?? null;
+
+      const candidateRelPaths = filePathInput
+        ? [filePathInput]
+        : [
+            'AI_GUIDELINES.md',
+            'docs/AI_GUIDELINES.md',
+            '.godot_mcp/AI_GUIDELINES.md',
+          ];
+
+      let absGuidelinesPath: string | null = null;
+      let resGuidelinesPath: string | null = null;
+
+      for (const rel of candidateRelPaths) {
+        try {
+          const abs = resolveInsideProject(projectPath, rel);
+          if (!(await fileExists(abs))) continue;
+          absGuidelinesPath = abs;
+          const relFromProject = path
+            .relative(path.resolve(projectPath), abs)
+            .split(path.sep)
+            .join('/');
+          resGuidelinesPath = `res://${relFromProject}`;
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      if (!absGuidelinesPath || !resGuidelinesPath) {
+        return {
+          ok: false,
+          summary: 'AI guidelines file not found',
+          error: {
+            code: 'E_NOT_FOUND',
+            message: 'AI guidelines file not found',
+            details: {
+              tried: candidateRelPaths,
+              suggestion:
+                'Create AI_GUIDELINES.md in the project root (or pass guidelinesFilePath).',
+            },
+            retryable: true,
+            suggestedFix: 'Create AI_GUIDELINES.md and retry.',
+          },
+          details: { tried: candidateRelPaths },
+          logs: [],
+        };
+      }
+
+      const raw = await fs.readFile(absGuidelinesPath, 'utf8');
+      const lines = raw.replace(/\r\n/gu, '\n').split('\n');
+
+      const maxMatches = Math.max(
+        1,
+        Math.min(
+          100,
+          Math.floor(asOptionalNumber(argsObj.maxMatches, 'maxMatches') ?? 10),
+        ),
+      );
+      const maxChars = Math.max(
+        200,
+        Math.min(
+          100_000,
+          Math.floor(asOptionalNumber(argsObj.maxChars, 'maxChars') ?? 12_000),
+        ),
+      );
+
+      if (action === 'guidelines.search') {
+        const query = asNonEmptyString(argsObj.query, 'query');
+        const needle = query.toLowerCase();
+
+        const matches: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < lines.length; i += 1) {
+          if (matches.length >= maxMatches) break;
+          const line = lines[i];
+          if (!line.toLowerCase().includes(needle)) continue;
+
+          let section: string | null = null;
+          for (let j = i; j >= 0; j -= 1) {
+            const m = lines[j].match(/^#{1,6}\s+(.+)$/u);
+            if (m) {
+              section = m[1].trim();
+              break;
+            }
+          }
+
+          matches.push({
+            lineNumber: i + 1,
+            line: line.trim(),
+            section,
+            context: {
+              before: lines[Math.max(0, i - 1)]?.trim() ?? '',
+              after: lines[Math.min(lines.length - 1, i + 1)]?.trim() ?? '',
+            },
+          });
+        }
+
+        return {
+          ok: true,
+          summary:
+            matches.length > 0
+              ? 'guidelines.search ok'
+              : 'guidelines.search (no matches)',
+          details: {
+            projectPath,
+            filePath: resGuidelinesPath,
+            query,
+            maxMatches,
+            matches,
+          },
+          logs: [],
+        };
+      }
+
+      const section = asNonEmptyString(argsObj.section, 'section').trim();
+
+      let startIndex = -1;
+      let startLevel = 0;
+      for (let i = 0; i < lines.length; i += 1) {
+        const m = lines[i].match(/^(#{1,6})\s+(.+)$/u);
+        if (!m) continue;
+        const level = m[1].length;
+        const title = m[2].trim();
+        if (title === section) {
+          startIndex = i;
+          startLevel = level;
+          break;
+        }
+      }
+
+      if (startIndex === -1) {
+        return {
+          ok: false,
+          summary: `Section not found: ${section}`,
+          error: {
+            code: 'E_NOT_FOUND',
+            message: `Section not found: ${section}`,
+            details: { section, filePath: resGuidelinesPath },
+            retryable: true,
+            suggestedFix:
+              'Call guidelines.search first to find the exact section heading.',
+          },
+          details: { section, filePath: resGuidelinesPath },
+          logs: [],
+        };
+      }
+
+      let endIndex = lines.length;
+      for (let i = startIndex + 1; i < lines.length; i += 1) {
+        const m = lines[i].match(/^(#{1,6})\s+(.+)$/u);
+        if (!m) continue;
+        const level = m[1].length;
+        if (level <= startLevel) {
+          endIndex = i;
+          break;
+        }
+      }
+
+      const extracted = lines.slice(startIndex, endIndex).join('\n').trim();
+      const truncated = extracted.length > maxChars;
+      const text = truncated
+        ? `${extracted.slice(0, maxChars)}\n\n[TRUNCATED]`
+        : extracted;
+
+      return {
+        ok: true,
+        summary: truncated
+          ? 'guidelines.get_section ok (truncated)'
+          : 'guidelines.get_section ok',
+        details: {
+          projectPath,
+          filePath: resGuidelinesPath,
+          section,
+          maxChars,
+          truncated,
+          text,
+        },
+        logs: [],
+      };
+    }
+
+    if (action === 'docs.search') {
+      const query = asNonEmptyString(argsObj.query, 'query');
+      const maxResults = Math.max(
+        1,
+        Math.min(
+          25,
+          Math.floor(asOptionalNumber(argsObj.maxResults, 'maxResults') ?? 10),
+        ),
+      );
+
+      const searchUrl = `https://docs.godotengine.org/en/stable/search.html?q=${encodeURIComponent(query)}`;
+      const apiUrl = `https://docs.godotengine.org/en/stable/_/api/v2/search/?q=${encodeURIComponent(query)}&project=godot&version=stable&language=en`;
+
+      try {
+        const resp = await axios.get(apiUrl, {
+          timeout: 10_000,
+          responseType: 'json',
+          headers: { 'User-Agent': 'godot-mcp-omni' },
+        });
+
+        const data = resp.data as unknown;
+        const resultsRaw =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? (data as Record<string, unknown>).results
+            : null;
+        const results = Array.isArray(resultsRaw) ? resultsRaw : [];
+
+        const candidates: Array<Record<string, unknown>> = [];
+        for (const item of results.slice(0, maxResults)) {
+          if (!item || typeof item !== 'object' || Array.isArray(item))
+            continue;
+          const obj = item as Record<string, unknown>;
+          const title = typeof obj.title === 'string' ? obj.title.trim() : '';
+          const pathValue = typeof obj.path === 'string' ? obj.path.trim() : '';
+          const highlights =
+            obj.highlights &&
+            typeof obj.highlights === 'object' &&
+            !Array.isArray(obj.highlights)
+              ? (obj.highlights as Record<string, unknown>)
+              : null;
+          const contentArr =
+            highlights && Array.isArray(highlights.content)
+              ? highlights.content
+              : [];
+          const excerptRaw =
+            contentArr.length > 0 && typeof contentArr[0] === 'string'
+              ? contentArr[0]
+              : '';
+          const excerpt = excerptRaw
+            .replace(/<[^>]+>/gu, ' ')
+            .replace(/\s+/gu, ' ')
+            .trim()
+            .slice(0, 240);
+          candidates.push({
+            title,
+            path: pathValue,
+            url: pathValue
+              ? `https://docs.godotengine.org/en/stable/${pathValue}`
+              : null,
+            excerpt: excerpt ? excerpt : null,
+          });
+        }
+
+        return {
+          ok: true,
+          summary:
+            candidates.length > 0
+              ? 'docs.search ok'
+              : 'docs.search (no results)',
+          details: {
+            query,
+            maxResults,
+            searchUrl,
+            candidates,
+          },
+          logs: [],
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          summary: 'docs.search failed',
+          error: {
+            code: 'E_INTERNAL',
+            message: error instanceof Error ? error.message : String(error),
+            details: { apiUrl, searchUrl },
+            retryable: true,
+            suggestedFix:
+              'Check network access and retry (or open searchUrl in a browser).',
+          },
+          details: { apiUrl, searchUrl },
+          logs: [],
+        };
+      }
+    }
+
+    if (action === 'docs.get_class') {
+      const className = asNonEmptyString(argsObj.className, 'className');
+      const maxChars = Math.max(
+        200,
+        Math.min(
+          100_000,
+          Math.floor(asOptionalNumber(argsObj.maxChars, 'maxChars') ?? 12_000),
+        ),
+      );
+
+      const classLower = className.toLowerCase().replace(/\s+/gu, '');
+      const url = `https://docs.godotengine.org/en/stable/classes/class_${encodeURIComponent(
+        classLower,
+      )}.html`;
+
+      const stripTags = (html: string): string =>
+        html
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/giu, ' ')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/giu, ' ')
+          .replace(/<[^>]+>/gu, ' ')
+          .replace(/\s+/gu, ' ')
+          .trim();
+
+      const decodeEntities = (text: string): string =>
+        text
+          .replace(/&lt;/gu, '<')
+          .replace(/&gt;/gu, '>')
+          .replace(/&amp;/gu, '&')
+          .replace(/&quot;/gu, '"')
+          .replace(/&#39;/gu, "'");
+
+      const extractSection = (html: string, id: string): string | null => {
+        const re = new RegExp(
+          `<section[^>]*id=["']${id}["'][^>]*>([\\s\\S]*?)<\\/section>`,
+          'iu',
+        );
+        const m = re.exec(html);
+        return m?.[1] ? m[1] : null;
+      };
+
+      const extractFirstParagraph = (sectionHtml: string): string | null => {
+        const re = /<p[^>]*>([\s\S]*?)<\/p>/iu;
+        const m = re.exec(sectionHtml);
+        if (!m?.[1]) return null;
+        return decodeEntities(stripTags(m[1]));
+      };
+
+      const extractTableRows = (
+        sectionHtml: string,
+        maxRows: number,
+      ): Array<string[]> => {
+        const tableMatch = /<table[^>]*>([\s\S]*?)<\/table>/iu.exec(
+          sectionHtml,
+        );
+        if (!tableMatch?.[1]) return [];
+        const tableHtml = tableMatch[1];
+        const rows = tableHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/giu) ?? [];
+        const out: Array<string[]> = [];
+        for (const row of rows.slice(0, maxRows)) {
+          const cells = row.match(/<td[^>]*>[\s\S]*?<\/td>/giu) ?? [];
+          const texts = cells
+            .map((c) => /<td[^>]*>([\s\S]*?)<\/td>/iu.exec(c)?.[1] ?? '')
+            .map((c) => decodeEntities(stripTags(c)))
+            .map((t) => t.trim())
+            .filter((t) => t.length > 0);
+          if (texts.length > 0) out.push(texts);
+        }
+        return out;
+      };
+
+      try {
+        const resp = await axios.get(url, {
+          timeout: 10_000,
+          responseType: 'text',
+          headers: { 'User-Agent': 'godot-mcp-omni' },
+          validateStatus: (s) => s >= 200 && s < 500,
+        });
+
+        if (resp.status === 404) {
+          return {
+            ok: false,
+            summary: `Class not found: ${className}`,
+            error: {
+              code: 'E_NOT_FOUND',
+              message: `Class not found: ${className}`,
+              details: { className, url },
+              retryable: true,
+              suggestedFix: 'Check spelling or call docs.search first.',
+            },
+            details: { className, url },
+            logs: [],
+          };
+        }
+
+        const html = String(resp.data ?? '');
+
+        const inheritsMatch = /<p[^>]*>\s*Inherits:\s*([\s\S]*?)<\/p>/iu.exec(
+          html,
+        );
+        const inherits = inheritsMatch?.[1]
+          ? decodeEntities(stripTags(inheritsMatch[1]))
+          : null;
+
+        const descriptionSection = extractSection(html, 'description');
+        const description = descriptionSection
+          ? extractFirstParagraph(descriptionSection)
+          : null;
+
+        const propertiesSection = extractSection(html, 'properties');
+        const propertiesRows = propertiesSection
+          ? extractTableRows(propertiesSection, 10)
+          : [];
+        const properties = propertiesRows
+          .map((cells) =>
+            cells.length >= 2 ? { type: cells[0], name: cells[1] } : null,
+          )
+          .filter((v): v is { type: string; name: string } => Boolean(v));
+
+        const methodsSection = extractSection(html, 'methods');
+        const methodRows = methodsSection
+          ? extractTableRows(methodsSection, 15)
+          : [];
+        const methods = methodRows
+          .map((cells) =>
+            cells.length >= 2
+              ? { returnType: cells[0], signature: cells[1] }
+              : null,
+          )
+          .filter((v): v is { returnType: string; signature: string } =>
+            Boolean(v),
+          );
+
+        const signalsSection = extractSection(html, 'signals');
+        const signals = signalsSection
+          ? (
+              signalsSection.match(
+                /<dt[^>]*class=["']sig["'][^>]*>([\s\S]*?)<\/dt>/giu,
+              ) ?? []
+            )
+              .slice(0, 8)
+              .map(
+                (dt) =>
+                  /<dt[^>]*class=["']sig["'][^>]*>([\s\S]*?)<\/dt>/iu.exec(
+                    dt,
+                  )?.[1] ?? '',
+              )
+              .map((t) => decodeEntities(stripTags(t)))
+              .filter((t) => t.trim().length > 0)
+          : [];
+
+        const body = [
+          inherits ? `Inherits: ${inherits}` : null,
+          description ? `Description: ${description}` : null,
+        ]
+          .filter((v): v is string => typeof v === 'string')
+          .join('\n');
+        const truncated = body.length > maxChars;
+
+        return {
+          ok: true,
+          summary: truncated
+            ? 'docs.get_class ok (truncated)'
+            : 'docs.get_class ok',
+          details: {
+            className,
+            url,
+            inherits,
+            description: description
+              ? description.length > maxChars
+                ? `${description.slice(0, maxChars)}…`
+                : description
+              : null,
+            properties,
+            methods,
+            signals,
+            maxChars,
+            truncated,
+          },
+          logs: [],
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          summary: 'docs.get_class failed',
+          error: {
+            code: 'E_INTERNAL',
+            message: error instanceof Error ? error.message : String(error),
+            details: { className, url },
+            retryable: true,
+            suggestedFix:
+              'Check network access and retry (or open url in a browser).',
+          },
+          details: { className, url },
+          logs: [],
+        };
+      }
     }
 
     return supportedActionError(

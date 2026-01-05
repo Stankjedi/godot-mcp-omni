@@ -914,7 +914,9 @@ export function createProjectToolHandlers(
         return {
           ok: false,
           summary: 'No active Godot process',
-          details: { suggestions: ['Use run_project first'] },
+          details: {
+            suggestions: ['Use godot_workspace_manager(action="run") first'],
+          },
         };
       }
 
@@ -931,7 +933,9 @@ export function createProjectToolHandlers(
         return {
           ok: false,
           summary: 'No active Godot process to stop',
-          details: { suggestions: ['Use run_project first'] },
+          details: {
+            suggestions: ['Use godot_workspace_manager(action="run") first'],
+          },
         };
       }
 

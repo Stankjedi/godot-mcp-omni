@@ -7,6 +7,7 @@ export const HEADLESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       'Run a headless Godot operation (godot_operations.gd) inside a project.',
     inputSchema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         projectPath: {
           type: 'string',
@@ -21,12 +22,18 @@ export const HEADLESS_TOOL_DEFINITIONS: ToolDefinition[] = [
       },
       required: ['projectPath', 'operation'],
     },
+    annotations: {
+      destructiveHint: true,
+      headlessHint: true,
+      advancedHint: true,
+    },
   },
   {
     name: 'godot_headless_batch',
     description: 'Run multiple headless operations in one Godot process.',
     inputSchema: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         projectPath: {
           type: 'string',
@@ -37,6 +44,7 @@ export const HEADLESS_TOOL_DEFINITIONS: ToolDefinition[] = [
           description: 'Batch steps to execute in-order',
           items: {
             type: 'object',
+            additionalProperties: false,
             properties: {
               operation: { type: 'string', description: 'Operation name' },
               params: {
@@ -54,6 +62,11 @@ export const HEADLESS_TOOL_DEFINITIONS: ToolDefinition[] = [
         },
       },
       required: ['projectPath', 'steps'],
+    },
+    annotations: {
+      destructiveHint: true,
+      headlessHint: true,
+      advancedHint: true,
     },
   },
 ];

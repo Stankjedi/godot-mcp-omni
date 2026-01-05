@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { existsSync } from 'fs';
+import { randomUUID } from 'node:crypto';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -18,13 +19,14 @@ import { MCP_SERVER_INFO } from './server_info.js';
 
 import { createEditorToolHandlers } from './tools/editor.js';
 import { createHeadlessToolHandlers } from './tools/headless.js';
-import { createAsepriteToolHandlers } from './tools/aseprite.js';
 import { createAsepriteManagerToolHandlers } from './tools/aseprite_manager.js';
+import { createBuilderManagerToolHandlers } from './tools/builder_manager.js';
+import { createCodeManagerToolHandlers } from './tools/code_manager.js';
 import { createMacroManagerToolHandlers } from './tools/macro_manager.js';
-import { createPixelToolHandlers } from './tools/pixel.js';
 import { createPixelManagerToolHandlers } from './tools/pixel_manager.js';
+import { createProjectConfigManagerToolHandlers } from './tools/project_config_manager.js';
 import { createProjectToolHandlers } from './tools/project.js';
-import { createServerInfoToolHandlers } from './tools/server_info_tool.js';
+import { createMetaToolManagerToolHandlers } from './tools/meta_tool_manager.js';
 import { createUnifiedToolHandlers } from './tools/unified.js';
 import { createWorkflowManagerToolHandlers } from './tools/workflow_manager.js';
 
@@ -39,6 +41,7 @@ const DEBUG_MODE = process.env.DEBUG === 'true';
 type McpToolResponse = {
   content: { type: 'text'; text: string }[];
   isError: boolean;
+  _meta?: Record<string, unknown>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,15 +64,119 @@ function invalidArgs(tool: string, error: unknown): ToolResponse | null {
   return {
     ok: false,
     summary: `Invalid arguments: ${error.message}`,
+    error: {
+      code: 'E_SCHEMA_VALIDATION',
+      message: error.message,
+      details: { tool, field: error.field, receivedType: error.receivedType },
+      retryable: true,
+      suggestedFix:
+        'Call meta_tool_manager(action="tool_help") for the tool/action and retry.',
+    },
     details: { tool, field: error.field, receivedType: error.receivedType },
     logs: [],
   };
+}
+
+function inferErrorCode(summary: string): string {
+  const s = summary.toLowerCase();
+  if (s.includes('invalid arguments')) return 'E_SCHEMA_VALIDATION';
+  if (s.includes('requires an editor bridge connection'))
+    return 'E_NOT_CONNECTED';
+  if (s.includes('not connected to editor bridge')) return 'E_NOT_CONNECTED';
+  if (s.includes('permission')) return 'E_PERMISSION_DENIED';
+  if (s.includes('timeout')) return 'E_TIMEOUT';
+  if (s.includes('unknown tool')) return 'E_UNSUPPORTED';
+  if (s.includes('unknown action')) return 'E_SCHEMA_VALIDATION';
+  return 'E_INTERNAL';
+}
+
+function inferRetryable(code: string): boolean {
+  return (
+    code === 'E_SCHEMA_VALIDATION' ||
+    code === 'E_NOT_CONNECTED' ||
+    code === 'E_TIMEOUT' ||
+    code === 'E_INTERNAL'
+  );
+}
+
+function inferAction(args: unknown, result: ToolResponse): string | null {
+  const actionFromArgs = getStringField(args, 'action');
+  if (actionFromArgs) return actionFromArgs;
+  const actionFromResp =
+    typeof result.action === 'string' ? result.action : null;
+  return actionFromResp && actionFromResp.trim() ? actionFromResp.trim() : null;
+}
+
+function finalizeToolResponse(options: {
+  tool: string;
+  args: unknown;
+  result: ToolResponse;
+  correlationId: string;
+  durationMs: number;
+}): ToolResponse {
+  const { tool, args, result, correlationId, durationMs } = options;
+
+  const action = inferAction(args, result);
+
+  const timestamp =
+    typeof result.timestamp === 'string' && result.timestamp.trim()
+      ? result.timestamp
+      : new Date().toISOString();
+
+  const error = result.ok
+    ? null
+    : (result.error ??
+      (() => {
+        const first = Array.isArray(result.errors) ? result.errors[0] : null;
+        const code =
+          first && typeof first.code === 'string' && first.code.trim()
+            ? first.code.trim()
+            : inferErrorCode(result.summary ?? '');
+        const message =
+          first && typeof first.message === 'string' && first.message.trim()
+            ? first.message.trim()
+            : (result.summary ?? 'Tool failed');
+        return {
+          code,
+          message,
+          details: first?.details ?? result.details ?? {},
+          retryable: inferRetryable(code),
+          suggestedFix:
+            'Call meta_tool_manager(action="tool_help") and retry with corrected args.',
+        };
+      })());
+
+  const next: ToolResponse = {
+    ...result,
+    timestamp,
+    correlationId,
+    meta: {
+      tool,
+      action,
+      correlationId,
+      durationMs,
+    },
+    error,
+    ...(result.ok
+      ? { result: result.result ?? result.details ?? null }
+      : { result: null }),
+  };
+
+  return next;
 }
 
 function toMcpResponse(result: ToolResponse): McpToolResponse {
   return {
     content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
     isError: !result.ok,
+    _meta: result.meta
+      ? {
+          correlationId: result.meta.correlationId,
+          tool: result.meta.tool,
+          action: result.meta.action,
+          durationMs: result.meta.durationMs,
+        }
+      : undefined,
   };
 }
 
@@ -254,7 +361,7 @@ export class GodotMcpOmniServer {
     const headlessHandlers = createHeadlessToolHandlers(ctx);
     const editorHandlers = createEditorToolHandlers(ctx);
     const projectHandlers = createProjectToolHandlers(ctx);
-    const serverInfoHandlers = createServerInfoToolHandlers(ctx);
+    const metaToolManagerHandlers = createMetaToolManagerToolHandlers(ctx);
 
     const unifiedHandlers = createUnifiedToolHandlers(ctx, {
       ...headlessHandlers,
@@ -262,17 +369,24 @@ export class GodotMcpOmniServer {
       ...projectHandlers,
     });
 
-    const asepriteHandlers = createAsepriteToolHandlers(ctx);
+    const codeManagerHandlers = createCodeManagerToolHandlers(ctx, {
+      ...headlessHandlers,
+      ...editorHandlers,
+      ...projectHandlers,
+      ...unifiedHandlers,
+    });
+
     const asepriteManagerHandlers = createAsepriteManagerToolHandlers(
       ctx,
       unifiedHandlers,
     );
 
-    const pixelHandlers = createPixelToolHandlers(ctx, {
+    const builderManagerHandlers = createBuilderManagerToolHandlers(ctx, {
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,
       ...unifiedHandlers,
+      ...codeManagerHandlers,
     });
 
     const pixelManagerHandlers = createPixelManagerToolHandlers(ctx, {
@@ -280,15 +394,23 @@ export class GodotMcpOmniServer {
       ...editorHandlers,
       ...projectHandlers,
       ...unifiedHandlers,
-      ...pixelHandlers,
     });
+
+    const projectConfigManagerHandlers = createProjectConfigManagerToolHandlers(
+      ctx,
+      {
+        ...headlessHandlers,
+        ...editorHandlers,
+        ...projectHandlers,
+        ...unifiedHandlers,
+      },
+    );
 
     const macroManagerHandlers = createMacroManagerToolHandlers(ctx, {
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,
       ...unifiedHandlers,
-      ...pixelHandlers,
       ...pixelManagerHandlers,
     });
 
@@ -296,21 +418,31 @@ export class GodotMcpOmniServer {
       dispatchTool: async (tool, args) => await this.dispatchTool(tool, args),
       normalizeParameters: (p) => this.normalizeParameters(p),
       listTools: () => TOOL_DEFINITIONS,
+      macroManager: macroManagerHandlers.macro_manager,
     });
 
-    return {
-      ...serverInfoHandlers,
+    const allHandlers: Record<string, ToolHandler> = {
+      ...metaToolManagerHandlers,
       ...headlessHandlers,
       ...editorHandlers,
       ...projectHandlers,
-      ...asepriteHandlers,
       ...asepriteManagerHandlers,
+      ...builderManagerHandlers,
+      ...codeManagerHandlers,
       ...unifiedHandlers,
-      ...pixelHandlers,
       ...pixelManagerHandlers,
-      ...macroManagerHandlers,
+      ...projectConfigManagerHandlers,
       ...workflowManagerHandlers,
     };
+
+    const allowed = new Set(TOOL_DEFINITIONS.map((t) => t.name));
+    const publicHandlers: Record<string, ToolHandler> = {};
+    for (const [name, handler] of Object.entries(allHandlers)) {
+      if (!allowed.has(name)) continue;
+      publicHandlers[name] = handler;
+    }
+
+    return publicHandlers;
   }
 
   private setupToolHandlers(): void {
@@ -321,6 +453,8 @@ export class GodotMcpOmniServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const tool = request.params.name;
       const args = this.normalizeParameters(request.params.arguments ?? {});
+      const correlationId = randomUUID();
+      const startedAt = Date.now();
 
       let result: ToolResponse;
       try {
@@ -348,8 +482,29 @@ export class GodotMcpOmniServer {
           details.error = { message };
         }
 
-        result = { ok: false, summary: message, details, logs: [] };
+        result = {
+          ok: false,
+          summary: message,
+          error: {
+            code: inferErrorCode(message),
+            message,
+            details,
+            retryable: true,
+            suggestedFix: 'Inspect the error details and retry.',
+          },
+          details,
+          logs: [],
+        };
       }
+
+      const durationMs = Date.now() - startedAt;
+      result = finalizeToolResponse({
+        tool,
+        args,
+        result,
+        correlationId,
+        durationMs,
+      });
 
       const maybeProjectPath = getStringField(args, 'projectPath');
       const auditProjectPath =
@@ -365,6 +520,7 @@ export class GodotMcpOmniServer {
         try {
           appendAuditLog(auditProjectPath, {
             ts: new Date().toISOString(),
+            correlationId,
             tool,
             args: redactSecrets(args),
             ok: Boolean(result.ok),

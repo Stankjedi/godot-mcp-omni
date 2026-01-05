@@ -4,6 +4,8 @@ import {
   asOptionalRecord,
 } from '../../../validation.js';
 
+import { assertEditorRpcAllowed } from '../../../security.js';
+
 import type { ServerContext } from '../../context.js';
 import type { ToolResponse } from '../../types.js';
 
@@ -48,12 +50,23 @@ export async function handleInstance(
       ) ?? 'root';
     const name = maybeGetString(instanceArgs, ['name'], 'name');
     const props = asOptionalRecord(instanceArgs.props, 'props');
-    return await callBaseTool(baseHandlers, 'godot_add_scene_instance', {
-      scenePath: sourceScenePath,
-      parentNodePath,
-      ...(name ? { name } : {}),
-      ...(props ? { props } : {}),
-      ...(ensureUniqueName !== undefined ? { ensureUniqueName } : {}),
+
+    const rpcParams: Record<string, unknown> = {
+      scene_path: sourceScenePath,
+      parent_path: parentNodePath,
+    };
+    if (name) rpcParams.name = name;
+    if (props) rpcParams.props = props;
+    if (ensureUniqueName !== undefined)
+      rpcParams.ensure_unique_name = ensureUniqueName;
+
+    assertEditorRpcAllowed(
+      'instance_scene',
+      rpcParams,
+      ctx.getEditorProjectPath() ?? '',
+    );
+    return await callBaseTool(baseHandlers, 'godot_rpc', {
+      request_json: { method: 'instance_scene', params: rpcParams },
       ...(localTimeout ? { timeoutMs: localTimeout } : {}),
     });
   }

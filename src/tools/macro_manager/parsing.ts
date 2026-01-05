@@ -97,9 +97,23 @@ export function guessPixelWorldScenePath(pixel: PixelMacroConfig): string {
   for (const raw of pixel.plan) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const step = raw as Record<string, unknown>;
-    if (step.tool !== 'pixel_world_generate') continue;
     const args = step.args;
     if (!args || typeof args !== 'object' || Array.isArray(args)) continue;
+
+    const tool = step.tool;
+    const action =
+      tool === 'pixel_manager'
+        ? (args as Record<string, unknown>).action
+        : tool === 'pixel_world_generate'
+          ? 'world_generate'
+          : null;
+    if (
+      typeof action !== 'string' ||
+      action.trim().toLowerCase() !== 'world_generate'
+    ) {
+      continue;
+    }
+
     const spec = (args as Record<string, unknown>).spec;
     if (!spec || typeof spec !== 'object' || Array.isArray(spec)) continue;
     const scenePathRaw =

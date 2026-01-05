@@ -56,8 +56,12 @@ function validateHeadlessOpPaths(
     op === 'create_scene' ||
     op === 'add_node' ||
     op === 'create_node_bundle' ||
+    op === 'generate_terrain_mesh' ||
     op === 'save_scene' ||
     op === 'set_node_properties' ||
+    op === 'rename_node' ||
+    op === 'move_node' ||
+    op === 'create_simple_animation' ||
     op === 'connect_signal' ||
     op === 'instance_scene' ||
     op === 'create_tilemap' ||
@@ -504,7 +508,7 @@ export function createHeadlessToolHandlers(
                       (s): s is string => typeof s === 'string',
                     )
                   : []),
-                'Try running godot_import_project_assets, then retry load_sprite.',
+                'Try running godot_import_project_assets, then retry godot_asset_manager(action="load_texture").',
               ],
               autoImportAttempted: true,
               importExitCode: importResult.exitCode,

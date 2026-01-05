@@ -14,7 +14,7 @@ import {
   isWindowsExePath,
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -151,17 +151,9 @@ test('Editor tools are CI-safe when not connected (no Godot required)', async ()
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
-    const toolNames = [
-      'godot_editor_batch',
-      'godot_select_node',
-      'godot_scene_tree_query',
-      'godot_duplicate_node',
-      'godot_reparent_node',
-      'godot_add_scene_instance',
-      'godot_disconnect_signal',
-    ];
+    const toolNames = ['godot_rpc', 'godot_inspect', 'godot_editor_batch'];
 
     for (const name of toolNames) {
       const res = await client.callTool(name, {});
@@ -215,7 +207,7 @@ test(
       writeMinimalProject(projectPath, 'godot-mcp-omni-editor-e2e');
       writeMinimalScenes(projectPath);
 
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       await client.callToolOrThrow('godot_sync_addon', {
         projectPath,
@@ -255,13 +247,17 @@ test(
       const portReady = await waitForPortOpen(connectHost, port, 60000);
       assert.equal(portReady, true, 'Editor bridge did not open the TCP port');
 
-      const connectResp = await client.callToolOrThrow('godot_connect_editor', {
-        projectPath,
-        host: connectHost,
-        port,
-        token,
-        timeoutMs: 60000,
-      });
+      const connectResp = await client.callToolOrThrow(
+        'godot_workspace_manager',
+        {
+          action: 'connect',
+          projectPath,
+          host: connectHost,
+          port,
+          token,
+          timeoutMs: 60000,
+        },
+      );
       assert.equal(connectResp.ok, true);
 
       await client.callToolOrThrow('godot_rpc', {
@@ -295,8 +291,9 @@ test(
       assert.equal(rollback.ok, false);
 
       const rollbackQuery = await client.callToolOrThrow(
-        'godot_scene_tree_query',
+        'godot_inspector_manager',
         {
+          action: 'query',
           name: 'RolledBack',
           includeRoot: true,
           limit: 10,
@@ -323,7 +320,8 @@ test(
       });
       assert.equal(batch.ok, true);
 
-      const query = await client.callToolOrThrow('godot_scene_tree_query', {
+      const query = await client.callToolOrThrow('godot_inspector_manager', {
+        action: 'query',
         name: 'BatchNode',
         includeRoot: true,
         limit: 10,
@@ -371,7 +369,8 @@ test(
         'Vector2',
       );
 
-      const dupResp = await client.callToolOrThrow('godot_duplicate_node', {
+      const dupResp = await client.callToolOrThrow('godot_scene_manager', {
+        action: 'duplicate',
         nodePath: batchNodePath,
         newName: 'BatchNodeCopy',
         timeoutMs: 30000,
@@ -386,24 +385,30 @@ test(
         timeoutMs: 30000,
       });
 
-      const reparentResp = await client.callToolOrThrow('godot_reparent_node', {
+      const reparentResp = await client.callToolOrThrow('godot_scene_manager', {
+        action: 'reparent',
         nodePath: batchNodePath,
         newParentPath: 'Parent',
         timeoutMs: 30000,
       });
       assert.equal(reparentResp.ok, true);
 
-      await client.callToolOrThrow('godot_add_scene_instance', {
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'instance',
         scenePath: 'res://SubScene.tscn',
         parentPath: 'root',
         name: 'SubInst',
         timeoutMs: 30000,
       });
 
-      const selectResp = await client.callToolOrThrow('godot_select_node', {
-        nodePath: 'SubInst',
-        timeoutMs: 30000,
-      });
+      const selectResp = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'select',
+          nodePath: 'SubInst',
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(selectResp.ok, true);
 
       await client.callToolOrThrow('godot_rpc', {
@@ -434,8 +439,9 @@ test(
       });
 
       const disconnectResp = await client.callToolOrThrow(
-        'godot_disconnect_signal',
+        'godot_inspector_manager',
         {
+          action: 'disconnect_signal',
           fromNodePath: 'Emitter',
           signal: 'tree_entered',
           toNodePath: 'Receiver',

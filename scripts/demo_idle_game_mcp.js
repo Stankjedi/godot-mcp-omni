@@ -450,8 +450,11 @@ async function main() {
       client.callToolOrThrow('get_godot_version', {}),
     );
 
-    await runStep('get_project_info', async () =>
-      client.callToolOrThrow('get_project_info', { projectPath }),
+    await runStep('godot_project_config_manager(project_info.get)', async () =>
+      client.callToolOrThrow('godot_project_config_manager', {
+        action: 'project_info.get',
+        projectPath,
+      }),
     );
 
     await runStep('godot_workspace_manager(status)', async () =>
@@ -636,8 +639,9 @@ async function main() {
       }),
     );
 
-    await runStep('save_scene(Main.tscn)', async () =>
-      client.callToolOrThrow('save_scene', {
+    await runStep('godot_workspace_manager(save_scene Main.tscn)', async () =>
+      client.callToolOrThrow('godot_workspace_manager', {
+        action: 'save_scene',
         projectPath,
         scenePath: 'Main.tscn',
       }),

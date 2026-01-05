@@ -6,11 +6,11 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
-test('pixel_tilemap_generate manual_drop fails early when tilesheet PNG is missing (CI-safe)', async () => {
+test('pixel_manager tilemap_generate manual_drop fails early when tilesheet PNG is missing (CI-safe)', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-manual-drop-');
   writeMinimalProject(projectPath, 'ManualDropTilemap');
 
@@ -18,8 +18,9 @@ test('pixel_tilemap_generate manual_drop fails early when tilesheet PNG is missi
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_tilemap_generate', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'tilemap_generate',
       projectPath,
       spec: { name: 'ManualDropTileset' },
       imageGenMode: 'manual_drop',
@@ -42,7 +43,7 @@ test('pixel_tilemap_generate manual_drop fails early when tilesheet PNG is missi
   }
 });
 
-test('pixel_object_generate manual_drop fails early when sprite PNG is missing (CI-safe)', async () => {
+test('pixel_manager object_generate manual_drop fails early when sprite PNG is missing (CI-safe)', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-manual-drop-');
   writeMinimalProject(projectPath, 'ManualDropObjects');
 
@@ -50,8 +51,9 @@ test('pixel_object_generate manual_drop fails early when sprite PNG is missing (
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_object_generate', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'object_generate',
       projectPath,
       spec: {
         objects: [{ id: 'rock', representation: 'tile' }],

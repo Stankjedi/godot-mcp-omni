@@ -96,7 +96,9 @@ export async function runObjectGenerate(
   const profile = await analyzePixelProjectForTool(ctx, projectPath);
 
   if (!overwriteAllowed(forceRegenerate)) {
-    const response = forceRegenerateBlocked('pixel_object_generate');
+    const response = forceRegenerateBlocked(
+      'pixel_manager(action="object_generate")',
+    );
     return {
       response,
       step: {
@@ -313,7 +315,7 @@ export async function runObjectGenerate(
             export: exportedAseprite.at(-1),
             suggestions: [
               ...(exportResult.suggestions ?? []),
-              'Run aseprite_doctor to check detection and supported flags.',
+              'Run aseprite_manager(action="doctor") to check detection and supported flags.',
             ],
           },
         };
@@ -348,7 +350,7 @@ export async function runObjectGenerate(
             expectedSizePx: { width: w, height: h },
             suggestions: [
               `Add a PNG at ${spritePngPath} (expected size: ${w}x${h}).`,
-              'Re-run pixel_object_generate with the same spec once the file exists.',
+              'Re-run pixel_manager(action="object_generate") with the same spec once the file exists.',
               'Or omit imageGenMode/manual_drop to use the builtin placeholder generator.',
             ],
           },
@@ -448,7 +450,7 @@ export async function runObjectGenerate(
             asepriteJsonPath: spriteAsepriteJsonPath,
             suggestions: [
               'Add at least one frame tag in Aseprite (e.g. "idle").',
-              'Re-export with --list-tags support enabled (aseprite_doctor can confirm capabilities).',
+              'Re-export with --list-tags support enabled (aseprite_manager(action="doctor") can confirm capabilities).',
               'Or set objects[].animation.enabled=false to use the static sprite workflow.',
             ],
           },

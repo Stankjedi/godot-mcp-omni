@@ -7,22 +7,102 @@ func get_operations() -> Dictionary:
 		"create_node_bundle": Callable(self, "create_node_bundle"),
 		"instance_scene": Callable(self, "instance_scene"),
 		"create_tilemap": Callable(self, "create_tilemap"),
-		"save_scene": Callable(self, "save_scene"),
-		"validate_scene": Callable(self, "validate_scene"),
-		"set_node_properties": Callable(self, "set_node_properties"),
-		"connect_signal": Callable(self, "connect_signal"),
-		"attach_script": Callable(self, "attach_script"),
-		"create_script": Callable(self, "create_script"),
-	}
+		"generate_terrain_mesh": Callable(self, "generate_terrain_mesh"),
+		"eval_expression": Callable(self, "eval_expression"),
+				"save_scene": Callable(self, "save_scene"),
+				"validate_scene": Callable(self, "validate_scene"),
+				"set_node_properties": Callable(self, "set_node_properties"),
+				"rename_node": Callable(self, "rename_node"),
+				"move_node": Callable(self, "move_node"),
+			"create_simple_animation": Callable(self, "create_simple_animation"),
+			"connect_signal": Callable(self, "connect_signal"),
+			"attach_script": Callable(self, "attach_script"),
+			"create_script": Callable(self, "create_script"),
+		}
+
+func _p(params: Dictionary, keys: Array, fallback = null):
+	for k in keys:
+		if params.has(k):
+			return params[k]
+	return fallback
+
+func _p_str(params: Dictionary, keys: Array, fallback: String = "") -> String:
+	var v = _p(params, keys, fallback)
+	if v == null:
+		return fallback
+	return String(v)
+
+func eval_expression(params: Dictionary) -> Dictionary:
+	var expression := _p_str(params, ["expression", "code"], "").strip_edges()
+	if expression.is_empty():
+		return _err("expression/code is required")
+	if expression.find("\n") != -1 or expression.find("\r") != -1:
+		return _err("expression must be single-line")
+	if expression.length() > 2000:
+		return _err("expression is too long", { "max": 2000, "length": expression.length() })
+
+	# Block member access / method calls: allow '.' only in numeric literals (e.g., 1.23)
+	var dot := expression.find(".")
+	while dot != -1:
+		var prev := expression.substr(dot - 1, 1) if dot > 0 else ""
+		var next := expression.substr(dot + 1, 1) if dot + 1 < expression.length() else ""
+		if not prev.is_valid_int() or not next.is_valid_int():
+			return _err("Restricted eval blocks member access ('.' is only allowed in numeric literals)", { "index": dot })
+		dot = expression.find(".", dot + 1)
+
+	var lowered := expression.to_lower()
+	var banned := [
+		"os",
+		"fileaccess",
+		"diraccess",
+		"projectsettings",
+		"editorinterface",
+		"engine",
+		"classdb",
+		"resourcesaver",
+		"resourceloader",
+		"load(",
+		"preload(",
+		"@tool",
+		"extends",
+		"class ",
+		"func ",
+		"var ",
+		"while ",
+		"for ",
+		"await ",
+	]
+	for token in banned:
+		if lowered.find(String(token)) != -1:
+			return _err("Restricted eval blocked unsafe token", { "token": token })
+
+	var vars_v = params.get("vars", params.get("variables", {}))
+	var input_names := PackedStringArray()
+	var inputs: Array = []
+	if typeof(vars_v) == TYPE_DICTIONARY:
+		var vars: Dictionary = vars_v
+		for k in vars.keys():
+			input_names.append(str(k))
+			inputs.append(_json_to_variant(vars[k]))
+
+	var e := Expression.new()
+	var parse_err := e.parse(expression, input_names)
+	if parse_err != OK:
+		return _err("Expression parse error", { "error": e.get_error_text() })
+
+	var result = e.execute(inputs, null, true)
+	if e.has_execute_failed():
+		return _err("Expression execute error", { "error": e.get_error_text() })
+
+	return _ok("Expression evaluated", { "expression": expression, "result": str(result) })
 
 func create_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	if scene_path_raw.is_empty():
+		return _err("scenePath/scene_path is required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
-	var root_node_type := "Node2D"
-	if params.has("root_node_type"):
-		root_node_type = String(params.root_node_type)
+	var scene_path := _to_res_path(scene_path_raw)
+	var root_node_type := _p_str(params, ["rootNodeType", "root_node_type"], "Node2D")
 
 	var root = _instantiate_class(root_node_type)
 	if root == null or not (root is Node):
@@ -46,11 +126,13 @@ func create_scene(params: Dictionary) -> Dictionary:
 	return _ok("Scene created", { "scene_path": scene_path, "absolute_path": ProjectSettings.globalize_path(scene_path) })
 
 func add_node(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_type", "node_name"]:
-		if not params.has(k):
-			return _err(k + " is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_type := _p_str(params, ["nodeType", "node_type"], "")
+	var node_name := _p_str(params, ["nodeName", "node_name"], "")
+	if scene_path_raw.is_empty() or node_type.is_empty() or node_name.is_empty():
+		return _err("scenePath/scene_path, nodeType/node_type, nodeName/node_name are required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load scene", { "scene_path": scene_path })
@@ -59,17 +141,13 @@ func add_node(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var parent_path := "root"
-	if params.has("parent_node_path"):
-		parent_path = String(params.parent_node_path)
+	var parent_path := _p_str(params, ["parentNodePath", "parent_node_path"], "root")
 
 	var parent := _find_node(scene_root, parent_path)
 	if parent == null:
 		return _err("Parent node not found", { "parent_node_path": parent_path })
 
-	var node_type := String(params.node_type)
-	var node_name := String(params.node_name)
-	var ensure_unique := bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
 	var new_node = _instantiate_class(node_type)
 	if new_node == null or not (new_node is Node):
 		return _err("Failed to instantiate node", { "node_type": node_type })
@@ -78,8 +156,9 @@ func add_node(params: Dictionary) -> Dictionary:
 		node_name = _unique_child_name(parent, node_name)
 	(new_node as Node).name = node_name
 
-	if params.has("properties") and typeof(params.properties) == TYPE_DICTIONARY:
-		var props: Dictionary = params.properties
+	var props_v = params.get("properties", params.get("props", {}))
+	if typeof(props_v) == TYPE_DICTIONARY:
+		var props: Dictionary = props_v
 		for key in props.keys():
 			var prop_name := String(key)
 			var expected := _prop_type(new_node as Node, prop_name)
@@ -101,11 +180,13 @@ func add_node(params: Dictionary) -> Dictionary:
 	return _ok("Node added", { "scene_path": scene_path, "node_name": node_name, "node_type": node_type, "node_path": node_path, "ensure_unique_name": ensure_unique })
 
 func create_node_bundle(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_type", "node_name"]:
-		if not params.has(k):
-			return _err(k + " is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_type := _p_str(params, ["nodeType", "node_type"], "")
+	var node_name := _p_str(params, ["nodeName", "node_name"], "")
+	if scene_path_raw.is_empty() or node_type.is_empty() or node_name.is_empty():
+		return _err("scenePath/scene_path, nodeType/node_type, nodeName/node_name are required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load scene", { "scene_path": scene_path })
@@ -114,17 +195,13 @@ func create_node_bundle(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var parent_path := "root"
-	if params.has("parent_node_path"):
-		parent_path = String(params.parent_node_path)
+	var parent_path := _p_str(params, ["parentNodePath", "parent_node_path"], "root")
 
 	var parent := _find_node(scene_root, parent_path)
 	if parent == null:
 		return _err("Parent node not found", { "parent_node_path": parent_path })
 
-	var node_type := String(params.node_type)
-	var node_name := String(params.node_name)
-	var ensure_unique := bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
 	var root_node = _instantiate_class(node_type)
 	if root_node == null or not (root_node is Node):
 		return _err("Failed to instantiate node", { "node_type": node_type })
@@ -201,18 +278,19 @@ func create_node_bundle(params: Dictionary) -> Dictionary:
 	)
 
 func instance_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
+	var target_scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	if target_scene_path_raw.is_empty():
+		return _err("scenePath/scene_path is required")
 
-	var source_scene_path_raw := ""
-	if params.has("source_scene_path"):
-		source_scene_path_raw = String(params.source_scene_path)
-	elif params.has("instance_scene_path"):
-		source_scene_path_raw = String(params.instance_scene_path)
-	else:
-		return _err("source_scene_path is required")
+	var source_scene_path_raw := _p_str(
+		params,
+		["sourceScenePath", "source_scene_path", "instanceScenePath", "instance_scene_path"],
+		""
+	)
+	if source_scene_path_raw.is_empty():
+		return _err("sourceScenePath/source_scene_path is required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(target_scene_path_raw)
 	var source_scene_path := _to_res_path(source_scene_path_raw)
 
 	var scene_res := load(scene_path)
@@ -223,9 +301,7 @@ func instance_scene(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var parent_path := "root"
-	if params.has("parent_node_path"):
-		parent_path = String(params.parent_node_path)
+	var parent_path := _p_str(params, ["parentNodePath", "parent_node_path"], "root")
 
 	var parent := _find_node(scene_root, parent_path)
 	if parent == null:
@@ -239,9 +315,9 @@ func instance_scene(params: Dictionary) -> Dictionary:
 	if inst == null or not (inst is Node):
 		return _err("Failed to instantiate source scene", { "source_scene_path": source_scene_path })
 
-	var ensure_unique := bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
 	if params.has("name"):
-		var desired := String(params.name)
+		var desired := String(params.get("name"))
 		if ensure_unique:
 			desired = _unique_child_name(parent, desired)
 		(inst as Node).name = desired
@@ -273,11 +349,12 @@ func instance_scene(params: Dictionary) -> Dictionary:
 
 
 func create_tilemap(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_name"]:
-		if not params.has(k):
-			return _err(k + " is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_name := _p_str(params, ["nodeName", "node_name"], "")
+	if scene_path_raw.is_empty() or node_name.is_empty():
+		return _err("scenePath/scene_path and nodeName/node_name are required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load scene", { "scene_path": scene_path })
@@ -286,24 +363,18 @@ func create_tilemap(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var parent_path := "root"
-	if params.has("parent_node_path"):
-		parent_path = String(params.parent_node_path)
+	var parent_path := _p_str(params, ["parentNodePath", "parent_node_path"], "root")
 
 	var parent := _find_node(scene_root, parent_path)
 	if parent == null:
 		return _err("Parent node not found", { "parent_node_path": parent_path })
 
-	var node_type := "TileMap"
-	if params.has("node_type"):
-		node_type = String(params.node_type)
-
-	var node_name := String(params.node_name)
+	var node_type := _p_str(params, ["nodeType", "node_type"], "TileMap")
 	var tilemap_node = _instantiate_class(node_type)
 	if tilemap_node == null or not (tilemap_node is Node):
 		return _err("Failed to instantiate TileMap", { "node_type": node_type })
 
-	var ensure_unique := bool(params.get("ensure_unique_name", params.get("ensureUniqueName", false)))
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
 	if ensure_unique:
 		node_name = _unique_child_name(parent, node_name)
 	(tilemap_node as Node).name = node_name
@@ -378,15 +449,139 @@ func create_tilemap(params: Dictionary) -> Dictionary:
 	var node_path := _node_path_str(scene_root, tilemap_node as Node)
 	return _ok("TileMap created", { "scene_path": scene_path, "node_name": node_name, "node_path": node_path, "cells": cell_count, "ensure_unique_name": ensure_unique })
 
+func generate_terrain_mesh(params: Dictionary) -> Dictionary:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	if scene_path_raw.is_empty():
+		return _err("scenePath/scene_path is required")
+
+	var scene_path := _to_res_path(scene_path_raw)
+	var scene_res := load(scene_path)
+	if scene_res == null or not (scene_res is PackedScene):
+		return _err("Failed to load scene", { "scene_path": scene_path })
+
+	var scene_root := (scene_res as PackedScene).instantiate()
+	if scene_root == null:
+		return _err("Failed to instantiate scene", { "scene_path": scene_path })
+
+	var parent_path := _p_str(params, ["parentNodePath", "parent_node_path"], "root")
+	var parent := _find_node(scene_root, parent_path)
+	if parent == null:
+		return _err("Parent node not found", { "parent_node_path": parent_path })
+
+	var desired_name := _p_str(params, ["nodeName", "name", "node_name"], "Terrain")
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
+	var node_name := _unique_child_name(parent, desired_name) if ensure_unique else desired_name
+
+	var size = max(1, int(_num(_p(params, ["size"], 32))))
+	var height_scale := _num(_p(params, ["heightScale", "height_scale"], 5.0), 5.0)
+	var seed_value := int(_num(_p(params, ["seed"], 0)))
+	if seed_value == 0:
+		seed_value = int(randi())
+	var frequency = max(0.000001, _num(_p(params, ["frequency"], 0.02), 0.02))
+	var octaves = max(1, int(_num(_p(params, ["octaves", "fractal_octaves"], 4), 4.0)))
+	var center := bool(_p(params, ["center"], true))
+
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = frequency
+	noise.fractal_octaves = octaves
+
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+
+	for z in range(size):
+		for x in range(size):
+			var h1 := noise.get_noise_2d(x, z) * height_scale
+			var h2 := noise.get_noise_2d(x + 1, z) * height_scale
+			var h3 := noise.get_noise_2d(x, z + 1) * height_scale
+			var h4 := noise.get_noise_2d(x + 1, z + 1) * height_scale
+
+			var v1 := Vector3(x, h1, z)
+			var v2 := Vector3(x + 1, h2, z)
+			var v3 := Vector3(x, h3, z + 1)
+			var v4 := Vector3(x + 1, h4, z + 1)
+
+			st.set_uv(Vector2(x, z))
+			st.add_vertex(v1)
+			st.set_uv(Vector2(x + 1, z))
+			st.add_vertex(v2)
+			st.set_uv(Vector2(x, z + 1))
+			st.add_vertex(v3)
+
+			st.set_uv(Vector2(x + 1, z))
+			st.add_vertex(v2)
+			st.set_uv(Vector2(x + 1, z + 1))
+			st.add_vertex(v4)
+			st.set_uv(Vector2(x, z + 1))
+			st.add_vertex(v3)
+
+	st.index()
+	st.generate_normals()
+	var mesh := st.commit()
+	if mesh == null:
+		return _err("Failed to create terrain mesh")
+
+	var body := StaticBody3D.new()
+	body.name = node_name
+	body.set_meta("_edit_group_", true)
+
+	var mesh_inst := MeshInstance3D.new()
+	mesh_inst.name = "Mesh"
+	mesh_inst.mesh = mesh
+	body.add_child(mesh_inst)
+	mesh_inst.owner = scene_root
+
+	var shape := CollisionShape3D.new()
+	shape.name = "Collision"
+	shape.shape = mesh.create_trimesh_shape()
+	body.add_child(shape)
+	shape.owner = scene_root
+
+	if center:
+		body.position = Vector3(-float(size) / 2.0, 0.0, -float(size) / 2.0)
+
+	parent.add_child(body)
+	body.owner = scene_root
+
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(scene_root)
+	if pack_err != OK:
+		return _err("Failed to pack scene", { "error": pack_err })
+
+	var save_err := ResourceSaver.save(packed, scene_path)
+	if save_err != OK:
+		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
+
+	var node_path := _node_path_str(scene_root, body)
+	return _ok(
+		"Terrain generated",
+		{
+			"scene_path": scene_path,
+			"node_name": node_name,
+			"node_path": node_path,
+			"parent_node_path": parent_path,
+			"size": size,
+			"height_scale": height_scale,
+			"seed": seed_value,
+			"frequency": frequency,
+			"octaves": octaves,
+			"ensure_unique_name": ensure_unique,
+			"center": center,
+		}
+	)
+
 
 func save_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	if scene_path_raw.is_empty():
+		return _err("scenePath/scene_path is required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var save_path := scene_path
-	if params.has("new_path"):
-		save_path = _to_res_path(String(params.new_path))
+	var new_path_raw := _p_str(params, ["newPath", "new_path"], "")
+	if not new_path_raw.is_empty():
+		save_path = _to_res_path(new_path_raw)
 
 	var scene_res := load(scene_path)
 	if scene_res == null:
@@ -403,10 +598,11 @@ func save_scene(params: Dictionary) -> Dictionary:
 	return _ok("Scene saved", { "scene_path": scene_path, "save_path": save_path, "absolute_path": ProjectSettings.globalize_path(save_path) })
 
 func validate_scene(params: Dictionary) -> Dictionary:
-	if not params.has("scene_path"):
-		return _err("scene_path is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	if scene_path_raw.is_empty():
+		return _err("scenePath/scene_path is required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load PackedScene", { "scene_path": scene_path })
@@ -419,14 +615,15 @@ func validate_scene(params: Dictionary) -> Dictionary:
 
 
 func set_node_properties(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_path", "props"]:
-		if not params.has(k):
-			return _err(k + " is required")
-
-	if typeof(params.props) != TYPE_DICTIONARY:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_path_raw := _p_str(params, ["nodePath", "node_path"], "")
+	var props_v = params.get("props", params.get("properties", null))
+	if scene_path_raw.is_empty() or node_path_raw.is_empty() or props_v == null:
+		return _err("scenePath/scene_path, nodePath/node_path, props are required")
+	if typeof(props_v) != TYPE_DICTIONARY:
 		return _err("props must be an object/dictionary")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load scene", { "scene_path": scene_path })
@@ -435,11 +632,11 @@ func set_node_properties(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var node := _find_node(scene_root, String(params.node_path))
+	var node := _find_node(scene_root, node_path_raw)
 	if node == null:
-		return _err("Node not found", { "node_path": params.node_path })
+		return _err("Node not found", { "node_path": node_path_raw })
 
-	var props: Dictionary = params.props
+	var props: Dictionary = props_v
 	var keys: Array[String] = []
 	for key in props.keys():
 		keys.append(String(key))
@@ -456,14 +653,16 @@ func set_node_properties(params: Dictionary) -> Dictionary:
 	if save_err != OK:
 		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
 
-	return _ok("Node properties set", { "scene_path": scene_path, "node_path": params.node_path, "properties": keys })
+	return _ok("Node properties set", { "scene_path": scene_path, "node_path": node_path_raw, "properties": keys })
 
-func connect_signal(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "from_node_path", "signal", "to_node_path", "method"]:
-		if not params.has(k):
-			return _err(k + " is required")
+func rename_node(params: Dictionary) -> Dictionary:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_path_raw := _p_str(params, ["nodePath", "node_path", "path"], "")
+	var new_name_raw := _p_str(params, ["newName", "new_name"], "")
+	if scene_path_raw.is_empty() or node_path_raw.is_empty() or new_name_raw.is_empty():
+		return _err("scenePath/scene_path, nodePath/node_path, newName/new_name are required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
+	var scene_path := _to_res_path(scene_path_raw)
 	var scene_res := load(scene_path)
 	if scene_res == null or not (scene_res is PackedScene):
 		return _err("Failed to load scene", { "scene_path": scene_path })
@@ -472,23 +671,30 @@ func connect_signal(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var from_node := _find_node(scene_root, String(params.from_node_path))
-	var to_node := _find_node(scene_root, String(params.to_node_path))
-	if from_node == null:
-		return _err("from_node not found", { "from_node_path": params.from_node_path })
-	if to_node == null:
-		return _err("to_node not found", { "to_node_path": params.to_node_path })
+	var node := _find_node(scene_root, node_path_raw)
+	if node == null:
+		return _err("Node not found", { "node_path": node_path_raw })
 
-	var signal_name := StringName(String(params.signal))
-	var method_name := StringName(String(params.method))
-	var callable := Callable(to_node, method_name)
+	var ensure_unique := bool(_p(params, ["ensureUniqueName", "ensure_unique_name"], false))
+	var desired := new_name_raw.strip_edges()
+	if desired.is_empty():
+		return _err("newName/new_name is required")
 
-	if from_node.is_connected(signal_name, callable):
-		return _ok("Signal already connected", { "scene_path": scene_path })
+	var final_name := desired
+	var parent := node.get_parent()
+	if ensure_unique and parent != null:
+		var existing = parent.get_node_or_null(desired)
+		if existing != null and existing != node:
+			var i := 2
+			while true:
+				var candidate := "%s_%d" % [desired, i]
+				var e2 = parent.get_node_or_null(candidate)
+				if e2 == null or e2 == node:
+					final_name = candidate
+					break
+				i += 1
 
-	var err := from_node.connect(signal_name, callable, Object.CONNECT_PERSIST)
-	if err != OK:
-		return _err("Failed to connect signal", { "error": err, "signal": String(params.signal) })
+	(node as Node).name = final_name
 
 	var packed := PackedScene.new()
 	var pack_err := packed.pack(scene_root)
@@ -499,15 +705,223 @@ func connect_signal(params: Dictionary) -> Dictionary:
 	if save_err != OK:
 		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
 
-	return _ok("Signal connected", { "scene_path": scene_path, "signal": String(params.signal) })
+	var resolved_path := _node_path_str(scene_root, node)
+	return _ok(
+		"Node renamed",
+		{
+			"scene_path": scene_path,
+			"node_path": resolved_path,
+			"old_node_path": node_path_raw,
+			"name": final_name,
+			"ensure_unique_name": ensure_unique,
+		}
+	)
+
+func move_node(params: Dictionary) -> Dictionary:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_path_raw := _p_str(params, ["nodePath", "node_path", "path"], "")
+	if scene_path_raw.is_empty() or node_path_raw.is_empty():
+		return _err("scenePath/scene_path and nodePath/node_path are required")
+
+	var index_v = _p(params, ["index", "newIndex", "new_index"], null)
+	if index_v == null:
+		return _err("index is required")
+
+	var scene_path := _to_res_path(scene_path_raw)
+	var scene_res := load(scene_path)
+	if scene_res == null or not (scene_res is PackedScene):
+		return _err("Failed to load scene", { "scene_path": scene_path })
+
+	var scene_root := (scene_res as PackedScene).instantiate()
+	if scene_root == null:
+		return _err("Failed to instantiate scene", { "scene_path": scene_path })
+
+	var node := _find_node(scene_root, node_path_raw)
+	if node == null:
+		return _err("Node not found", { "node_path": node_path_raw })
+
+	var parent := node.get_parent()
+	if parent == null:
+		return _err("Cannot move scene root")
+
+	var index := int(_num(index_v, -1.0))
+	if index < 0:
+		return _err("index must be a non-negative integer")
+
+	var max_index := parent.get_child_count() - 1
+	index = clamp(index, 0, max_index)
+	parent.move_child(node, index)
+
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(scene_root)
+	if pack_err != OK:
+		return _err("Failed to pack scene", { "error": pack_err })
+
+	var save_err := ResourceSaver.save(packed, scene_path)
+	if save_err != OK:
+		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
+
+	var resolved_path := _node_path_str(scene_root, node)
+	return _ok(
+		"Node moved",
+		{
+			"scene_path": scene_path,
+			"node_path": resolved_path,
+			"index": index,
+		}
+	)
+
+func create_simple_animation(params: Dictionary) -> Dictionary:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var player_path_raw := _p_str(params, ["playerPath", "player_path"], "")
+	var animation_name := _p_str(params, ["animation", "animationName", "animation_name"], "")
+	var node_path_raw := _p_str(params, ["nodePath", "node_path"], "")
+	var property := _p_str(params, ["property"], "")
+	var start_value = _p(params, ["startValue", "start_value"], null)
+	var end_value = _p(params, ["endValue", "end_value"], null)
+	var duration := _num(_p(params, ["duration"], 1.0), 1.0)
+	var replace_existing := bool(_p(params, ["replaceExisting", "replace_existing"], true))
+
+	if (
+		scene_path_raw.is_empty()
+		or player_path_raw.is_empty()
+		or animation_name.is_empty()
+		or node_path_raw.is_empty()
+		or property.is_empty()
+		or end_value == null
+	):
+		return _err("scenePath/scene_path, playerPath/player_path, animation, nodePath/node_path, property, endValue/end_value are required")
+	if duration <= 0.0:
+		return _err("duration must be > 0", { "duration": duration })
+
+	var scene_path := _to_res_path(scene_path_raw)
+	var scene_res := load(scene_path)
+	if scene_res == null or not (scene_res is PackedScene):
+		return _err("Failed to load scene", { "scene_path": scene_path })
+
+	var scene_root := (scene_res as PackedScene).instantiate()
+	if scene_root == null:
+		return _err("Failed to instantiate scene", { "scene_path": scene_path })
+
+	var player_node := _find_node(scene_root, player_path_raw)
+	if player_node == null or not (player_node is AnimationPlayer):
+		return _err("playerPath is not an AnimationPlayer", { "player_path": player_path_raw })
+
+	var target_node := _find_node(scene_root, node_path_raw)
+	if target_node == null:
+		return _err("Target node not found", { "node_path": node_path_raw })
+
+	var expected := _prop_type(target_node, property)
+	if expected == TYPE_NIL:
+		return _err("Property not found", { "property": property, "node_path": node_path_raw })
+
+	var current = target_node.get(property)
+	if current == null and start_value == null:
+		return _err("Property is null; provide startValue/start_value", { "property": property })
+
+	var from_val = current if start_value == null else _json_to_variant_for_type(start_value, expected)
+	var to_val = _json_to_variant_for_type(end_value, expected)
+
+	var anim := Animation.new()
+	anim.length = duration
+
+	var rel_path: NodePath = (player_node as Node).get_path_to(target_node)
+	var track := anim.add_track(Animation.TYPE_VALUE)
+	anim.track_set_path(track, NodePath(str(rel_path) + ":" + property))
+	anim.track_insert_key(track, 0.0, from_val)
+	anim.track_insert_key(track, duration, to_val)
+
+	var player := player_node as AnimationPlayer
+	var lib = player.get_animation_library("")
+	if lib == null:
+		lib = AnimationLibrary.new()
+		player.add_animation_library("", lib)
+
+	if lib.has_animation(animation_name):
+		if not replace_existing:
+			return _err("Animation already exists", { "animation": animation_name })
+		lib.remove_animation(animation_name)
+
+	lib.add_animation(animation_name, anim)
+
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(scene_root)
+	if pack_err != OK:
+		return _err("Failed to pack scene", { "error": pack_err })
+
+	var save_err := ResourceSaver.save(packed, scene_path)
+	if save_err != OK:
+		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
+
+	return _ok(
+		"Animation created",
+		{
+			"scene_path": scene_path,
+			"player_path": player_path_raw,
+			"animation": animation_name,
+			"node_path": node_path_raw,
+			"property": property,
+			"duration": duration,
+			"replace_existing": replace_existing,
+		}
+	)
+
+func connect_signal(params: Dictionary) -> Dictionary:
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var from_node_path := _p_str(params, ["fromNodePath", "from_node_path"], "")
+	var to_node_path := _p_str(params, ["toNodePath", "to_node_path"], "")
+	var signal_value := _p_str(params, ["signal"], "")
+	var method_value := _p_str(params, ["method"], "")
+	if scene_path_raw.is_empty() or from_node_path.is_empty() or to_node_path.is_empty() or signal_value.is_empty() or method_value.is_empty():
+		return _err("scenePath/scene_path, fromNodePath/from_node_path, signal, toNodePath/to_node_path, method are required")
+
+	var scene_path := _to_res_path(scene_path_raw)
+	var scene_res := load(scene_path)
+	if scene_res == null or not (scene_res is PackedScene):
+		return _err("Failed to load scene", { "scene_path": scene_path })
+
+	var scene_root := (scene_res as PackedScene).instantiate()
+	if scene_root == null:
+		return _err("Failed to instantiate scene", { "scene_path": scene_path })
+
+	var from_node := _find_node(scene_root, from_node_path)
+	var to_node := _find_node(scene_root, to_node_path)
+	if from_node == null:
+		return _err("from_node not found", { "from_node_path": from_node_path })
+	if to_node == null:
+		return _err("to_node not found", { "to_node_path": to_node_path })
+
+	var signal_name := StringName(signal_value)
+	var method_name := StringName(method_value)
+	var callable := Callable(to_node, method_name)
+
+	if from_node.is_connected(signal_name, callable):
+		return _ok("Signal already connected", { "scene_path": scene_path })
+
+	var err := from_node.connect(signal_name, callable, Object.CONNECT_PERSIST)
+	if err != OK:
+		return _err("Failed to connect signal", { "error": err, "signal": signal_value })
+
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(scene_root)
+	if pack_err != OK:
+		return _err("Failed to pack scene", { "error": pack_err })
+
+	var save_err := ResourceSaver.save(packed, scene_path)
+	if save_err != OK:
+		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
+
+	return _ok("Signal connected", { "scene_path": scene_path, "signal": signal_value })
 
 func attach_script(params: Dictionary) -> Dictionary:
-	for k in ["scene_path", "node_path", "script_path"]:
-		if not params.has(k):
-			return _err(k + " is required")
+	var scene_path_raw := _p_str(params, ["scenePath", "scene_path"], "")
+	var node_path_raw := _p_str(params, ["nodePath", "node_path"], "")
+	var script_path_raw := _p_str(params, ["scriptPath", "script_path"], "")
+	if scene_path_raw.is_empty() or node_path_raw.is_empty() or script_path_raw.is_empty():
+		return _err("scenePath/scene_path, nodePath/node_path, scriptPath/script_path are required")
 
-	var scene_path := _to_res_path(String(params.scene_path))
-	var script_path := _to_res_path(String(params.script_path))
+	var scene_path := _to_res_path(scene_path_raw)
+	var script_path := _to_res_path(script_path_raw)
 
 	var script_res := load(script_path)
 	if script_res == null or not (script_res is Script):
@@ -521,9 +935,9 @@ func attach_script(params: Dictionary) -> Dictionary:
 	if scene_root == null:
 		return _err("Failed to instantiate scene", { "scene_path": scene_path })
 
-	var node := _find_node(scene_root, String(params.node_path))
+	var node := _find_node(scene_root, node_path_raw)
 	if node == null:
-		return _err("Node not found", { "node_path": params.node_path })
+		return _err("Node not found", { "node_path": node_path_raw })
 
 	node.set_script(script_res)
 
@@ -536,13 +950,14 @@ func attach_script(params: Dictionary) -> Dictionary:
 	if save_err != OK:
 		return _err("Failed to save scene", { "error": save_err, "scene_path": scene_path })
 
-	return _ok("Script attached", { "scene_path": scene_path, "node_path": params.node_path, "script_path": script_path })
+	return _ok("Script attached", { "scene_path": scene_path, "node_path": node_path_raw, "script_path": script_path })
 
 func create_script(params: Dictionary) -> Dictionary:
-	if not params.has("script_path"):
-		return _err("script_path is required")
+	var script_path_raw := _p_str(params, ["scriptPath", "script_path"], "")
+	if script_path_raw.is_empty():
+		return _err("scriptPath/script_path is required")
 
-	var script_path := _to_res_path(String(params.script_path))
+	var script_path := _to_res_path(script_path_raw)
 	var template := String(params.get("template", "minimal"))
 	var extends_name := String(params.get("extends", "Node"))
 	var global_class_name := String(params.get("class_name", ""))

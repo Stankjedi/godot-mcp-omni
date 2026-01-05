@@ -438,7 +438,11 @@ async function runProjectSetupForEditorBridge(
   const lockFileExists = await pathExists(lockFilePath);
 
   if (opts.readOnly) {
-    const dstAddonPath = path.join(absProjectPath, 'addons', 'godot_mcp_bridge');
+    const dstAddonPath = path.join(
+      absProjectPath,
+      'addons',
+      'godot_mcp_bridge',
+    );
     const dstPluginCfgPath = path.join(dstAddonPath, 'plugin.cfg');
     const dstAddonOk = await pathExists(dstPluginCfgPath);
 

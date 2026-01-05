@@ -14,7 +14,7 @@ import {
   isWindowsExePath,
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -261,7 +261,7 @@ test(
       writeTestScript(projectPath);
       writeTinyPng(projectPath);
 
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       // Ensure unified tools are registered.
       const listResp = await client.send('tools/list', {}, 30000);
@@ -848,7 +848,7 @@ test(
       writeMinimalScenes(projectPath);
       writeTestScript(projectPath);
 
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       await client.callToolOrThrow('godot_sync_addon', {
         projectPath,

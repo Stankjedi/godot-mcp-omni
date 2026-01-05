@@ -7,7 +7,7 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -38,7 +38,7 @@ function createHttpSpecServer(planFactory) {
   return server;
 }
 
-test('pixel_goal_to_spec returns a builtin plan (no external tools)', async () => {
+test('pixel_manager goal_to_spec returns a builtin plan (no external tools)', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-goal-');
   writeMinimalProject(projectPath);
 
@@ -46,8 +46,9 @@ test('pixel_goal_to_spec returns a builtin plan (no external tools)', async () =
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_goal_to_spec', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'goal_to_spec',
       projectPath,
       goal: '타일맵 만들고 월드 생성해줘 (맵 크기 64x64, 숲/초원/강) 그리고 나무 넣어줘 밀도 0.2',
       allowExternalTools: false,
@@ -58,16 +59,21 @@ test('pixel_goal_to_spec returns a builtin plan (no external tools)', async () =
     assert.equal(resp.details.adapter, 'builtin');
     assert.ok(Array.isArray(resp.details.plan));
 
-    const tools = resp.details.plan
-      .map((s) => (s && typeof s === 'object' ? s.tool : undefined))
-      .filter((t) => typeof t === 'string');
+    const steps = resp.details.plan.filter(
+      (s) => s && typeof s === 'object' && !Array.isArray(s),
+    );
+    for (const s of steps) assert.equal(s.tool, 'pixel_manager');
+
+    const actions = steps
+      .map((s) => s?.args?.action)
+      .filter((a) => typeof a === 'string');
     for (const required of [
-      'pixel_tilemap_generate',
-      'pixel_world_generate',
-      'pixel_object_generate',
-      'pixel_object_place',
+      'tilemap_generate',
+      'world_generate',
+      'object_generate',
+      'object_place',
     ]) {
-      assert.ok(tools.includes(required), `Missing step tool: ${required}`);
+      assert.ok(actions.includes(required), `Missing step action: ${required}`);
     }
   } finally {
     client.dispose();
@@ -76,7 +82,7 @@ test('pixel_goal_to_spec returns a builtin plan (no external tools)', async () =
   }
 });
 
-test('pixel_macro_run rejects an unsupported explicit plan tool', async () => {
+test('pixel_manager macro_run rejects an unsupported explicit plan tool', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-macro-');
   writeMinimalProject(projectPath);
 
@@ -84,8 +90,9 @@ test('pixel_macro_run rejects an unsupported explicit plan tool', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_macro_run', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'macro_run',
       projectPath,
       dryRun: true,
       plan: [{ tool: 'not_a_real_tool', args: {} }],
@@ -100,7 +107,7 @@ test('pixel_macro_run rejects an unsupported explicit plan tool', async () => {
   }
 });
 
-test('pixel_goal_to_spec can use HTTP spec generator when enabled', async () => {
+test('pixel_manager goal_to_spec can use HTTP spec generator when enabled', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-http-');
   writeMinimalProject(projectPath);
 
@@ -142,8 +149,9 @@ test('pixel_goal_to_spec can use HTTP spec generator when enabled', async () => 
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_goal_to_spec', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'goal_to_spec',
       projectPath,
       goal: 'use http spec gen',
       allowExternalTools: true,
@@ -153,7 +161,7 @@ test('pixel_goal_to_spec can use HTTP spec generator when enabled', async () => 
     assert.equal(resp.ok, true);
     assert.equal(resp.details.adapter, 'http');
     assert.ok(Array.isArray(resp.details.plan));
-    assert.equal(resp.details.plan[0].tool, 'pixel_tilemap_generate');
+    assert.equal(resp.details.plan[0].tool, 'pixel_manager');
   } finally {
     client.dispose();
     server.kill();
@@ -162,7 +170,7 @@ test('pixel_goal_to_spec can use HTTP spec generator when enabled', async () => 
   }
 });
 
-test('pixel_goal_to_spec does not use HTTP adapter when allowExternalTools=false', async () => {
+test('pixel_manager goal_to_spec does not use HTTP adapter when allowExternalTools=false', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-http-gated-');
   writeMinimalProject(projectPath);
 
@@ -186,8 +194,9 @@ test('pixel_goal_to_spec does not use HTTP adapter when allowExternalTools=false
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_goal_to_spec', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'goal_to_spec',
       projectPath,
       goal: 'should not call http',
       allowExternalTools: false,
@@ -203,7 +212,7 @@ test('pixel_goal_to_spec does not use HTTP adapter when allowExternalTools=false
   }
 });
 
-test('pixel_macro_run accepts extended spec fields (dry run)', async () => {
+test('pixel_manager macro_run accepts extended spec fields (dry run)', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-extended-');
   writeMinimalProject(projectPath);
 
@@ -211,8 +220,9 @@ test('pixel_macro_run accepts extended spec fields (dry run)', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_macro_run', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'macro_run',
       projectPath,
       dryRun: true,
       plan: [
@@ -286,7 +296,7 @@ test('pixel_macro_run accepts extended spec fields (dry run)', async () => {
   }
 });
 
-test('pixel_macro_run rejects invalid placement inputs', async () => {
+test('pixel_manager macro_run rejects invalid placement inputs', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-invalid-');
   writeMinimalProject(projectPath);
 
@@ -294,8 +304,9 @@ test('pixel_macro_run rejects invalid placement inputs', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('pixel_macro_run', {
+    await waitForServerReady(client);
+    const resp = await client.callTool('pixel_manager', {
+      action: 'macro_run',
       projectPath,
       dryRun: true,
       plan: [

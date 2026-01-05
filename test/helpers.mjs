@@ -54,16 +54,69 @@ export function writeMinimalProject(
 }
 
 export function startServer(env = {}, spawnOptions = {}) {
+  const spawnEnv = spawnOptions.env ?? {};
+  const mergedEnv = {
+    ...process.env,
+    ...spawnEnv,
+    ...env,
+  };
+
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const safeKeys = ['ALLOW_DANGEROUS_OPS', 'ALLOW_EXTERNAL_TOOLS'];
+
+  for (const key of safeKeys) {
+    if (!hasOwn(env, key) && !hasOwn(spawnEnv, key)) {
+      mergedEnv[key] = 'false';
+    }
+  }
+
   return spawn(process.execPath, [SERVER_ENTRY], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
     ...spawnOptions,
-    env: {
-      ...process.env,
-      ...(spawnOptions.env ?? {}),
-      ...env,
-    },
+    env: mergedEnv,
   });
+}
+
+function snippet(value) {
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+  } catch {
+    return String(value);
+  }
+}
+
+export async function waitForServerReady(
+  client,
+  { timeoutMs = 10000, intervalMs = 50 } = {},
+) {
+  const startedAt = Date.now();
+  let lastError = null;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+      const resp = await client.send(
+        'tools/list',
+        {},
+        Math.min(1000, remainingMs),
+      );
+      if ('error' in resp) {
+        throw new Error(`tools/list error: ${snippet(resp.error)}`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(
+    `Timed out waiting for server ready (${timeoutMs}ms): ${message}`,
+  );
 }
 
 export async function waitForServerStartup(ms = 300) {

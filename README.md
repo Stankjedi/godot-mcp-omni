@@ -17,7 +17,10 @@
 
 ### 🚀 통합 관리자 시스템 (Unified Managers)
 
-granular한 도구들을 5개의 핵심 관리자로 통폐합하여 복잡성을 줄이고 사용성을 극대화했습니다.
+granular한 기능을 **manager tools(`godot_*_manager`) + action-dispatch** 형태로 제공하여, 도구 선택을 안정화하고 유지보수 비용을 줄였습니다.
+
+- **도구 선택 가이드(권장 진입점):** `docs/tool_catalog.md`
+- **전체 도구/스키마(SSOT):** `docs/TOOLS.md` (자동 생성; `npm run docs:tools`)
 
 - **Hybrid Dispatcher**: 에디터 연결 상태를 자동 감지하여 RPC(실시간) 또는 Headless(명령행) 모드를 지능적으로 선택합니다.
 - **Auto-Type Casting**: JSON 데이터를 Godot 내장 타입(Vector3, Color, Transform 등)으로 자동 변환 지원.
@@ -43,7 +46,7 @@ GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 타일 시트 → 월드 → 오브젝트 생성까지 한 번에 자동화하는 2D 픽셀 파이프라인을 제공합니다.
 
 - **타일셋/월드/오브젝트 생성**: TileSet/TileMapLayer/오브젝트 스프라이트 자동 생성
-- **매크로 오케스트레이션**: `pixel_macro_run` 또는 `pixel_manager(action="macro_run")`로 단일 요청 실행
+- **매크로 오케스트레이션**: `pixel_manager(action="macro_run")`로 단일 요청 실행
 - **재현성 기록**: `res://.godot_mcp/pixel_manifest.json`에 실행 결과 기록
 
 간단 예시:
@@ -61,9 +64,9 @@ GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 
 자세한 사용법은 `docs/pixel_pipeline.md`를 참고하세요.
 
-### 🧩 Macro Manager (Sequential Automation)
+### 🧩 Macro (Sequential Automation)
 
-`macro_manager`는 “게임 기능 개발”을 위한 **순차 실행 매크로**(스캐폴딩) 도구입니다.
+`workflow_manager`의 `macro.*` 액션은 “게임 기능 개발”을 위한 **순차 실행 매크로**(스캐폴딩) 기능을 제공합니다.
 
 - 예: 입력/플레이어/카메라/UI/세이브/오디오 같은 시스템 뼈대를 프로젝트에 생성
 - 출력은 기본적으로 `res://scripts/macro/...`, `res://scenes/generated/macro/...` 아래에 생성
@@ -83,7 +86,7 @@ GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 
 - 스키마: `scripts/workflow.schema.json`
 - 최소 예시: `scripts/workflow_example.json`
-- 실행 스크립트: `scripts/run_workflow.js` (`npm run workflow:run`)
+- 실행: `npm run workflow:run -- <workflow.json>` (또는 `node build/index.js --run-workflow <path>`)
 - 가이드: `docs/workflow.md`
 
 ---
@@ -93,6 +96,16 @@ GUI 없이도 강력한 프로젝트 조작이 가능합니다.
 - **Godot Engine 4.4+** ([다운로드](https://godotengine.org/download))
 - **Node.js 20+** ([다운로드](https://nodejs.org/))
 - **MCP 지원 AI 어시스턴트** (Cline, Cursor, Claude Desktop 등)
+
+---
+
+## 📚 문서 (SSOT)
+
+- 구조/런타임 흐름: `docs/ARCHITECTURE.md`
+- 도구 선택 가이드(LLM 안정성): `docs/tool_catalog.md`
+- 응답/에러 규약(Tool Contract): `docs/tool_contract.md`
+- 전체 도구 목록/스키마(자동 생성): `docs/TOOLS.md` (`npm run docs:tools`)
+- 보안/감사 로그: `docs/SECURITY.md`
 
 ---
 
@@ -128,6 +141,9 @@ npm run build
       - 자동 애드온 동기화/플러그인 활성화/토큰 생성/host·port 파일 쓰기/lock 파일 정리/에디터 자동 실행을 수행하지 않고, 필요한 조치를 `suggestions`로 안내합니다.
     - (선택) `--json`: 결과를 JSON으로 출력(기계 판독용, `--doctor`와 함께만 사용 가능)
       - 스키마(요약): `{ ok, summary, details: { godot, project? }, suggestions }`
+  - `--doctor-report`: MCP로 `godot_workspace_manager(action="doctor_report")`를 호출해 Markdown 리포트를 생성/갱신 후 종료 (stdout JSON-only, exit code: 0/1)
+    - `--project <path>`: (필수) 리포트를 생성할 Godot 프로젝트 루트
+    - (선택) `--doctor-report-path <path>`: 출력 경로 (기본값: `.godot_mcp/reports/doctor_report.md`, project-relative만 허용)
   - `--run-scenarios`: CI-safe 시나리오 스모크 테스트 실행 후 종료 (exit code: 0/1)
   - `--godot-path <path>`: `GODOT_PATH` 대신 명시적으로 Godot 경로 지정(우선 적용)
   - `--strict-path-validation`: Godot 경로 검증을 엄격 모드로 실행
@@ -135,6 +151,8 @@ npm run build
   - `--print-mcp-config`: MCP 서버 설정 JSON 출력 후 종료 (IDE 연동시 활용)
   - `--list-tools`: 사용 가능한 MCP 도구 목록을 출력하고 종료합니다(서버 시작 없음, exit code: 0)
   - `--list-tools-json`: 사용 가능한 MCP 도구 목록을 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0)
+  - `--list-tools-full-json`: 모든 MCP 도구 정의를 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0)
+  - `--tool-schema <toolName>`: 단일 MCP 도구 정의를 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0/1)
   - (선택) 전역 설치/링크를 사용하면 `godot-mcp-omni` 바이너리로도 실행할 수 있습니다.
 
 예시:
@@ -147,6 +165,12 @@ node build/index.js --doctor --json --godot-path /path/to/godot
 
 ```bash
 node build/index.js --doctor --json --project /path/to/godot-project --godot-path /path/to/godot
+```
+
+Doctor report 생성 예시:
+
+```bash
+node build/index.js --doctor-report --project /path/to/godot-project
 ```
 
 CI-safe 시나리오 실행 예시:
@@ -165,10 +189,10 @@ node build/index.js --list-tools
 출력 예시(축약):
 
 ```text
-Total tools: 51
+Total tools: 25
 
-[server] (1)
-- server_info
+[meta] (1)
+- meta_tool_manager
 ```
 
 도구 목록 JSON 출력 예시:
@@ -176,6 +200,16 @@ Total tools: 51
 ```bash
 node build/index.js --list-tools-json
 ```
+
+도구 스키마 JSON 출력 예시:
+
+```bash
+node build/index.js --tool-schema meta_tool_manager
+```
+
+참고:
+
+- 존재하지 않는 도구명을 지정하면 JSON-only 에러 출력 + non-zero exit code로 종료합니다.
 
 #### ✅ MCP 설정 자동 생성
 
@@ -373,6 +407,21 @@ npm run clean:tmp
 
 ## 🛠️ MCP 도구 레퍼런스
 
+> 참고: 이 섹션은 핵심 흐름을 위한 요약입니다. 최신/정확한 단일 소스는 아래를 기준으로 확인하세요.
+>
+> - 도구 선택 가이드: `docs/tool_catalog.md`
+> - 전체 도구 목록/스키마: `docs/TOOLS.md` (자동 생성; `npm run docs:tools`)
+> - 응답/에러 규약: `docs/tool_contract.md`
+
+전체 도구 목록 (총 25개, `docs/TOOLS.md` 기준):
+
+- Meta: `meta_tool_manager`
+- Managers (core): `godot_workspace_manager`, `godot_scene_manager`, `godot_inspector_manager`, `godot_asset_manager`, `godot_project_config_manager`
+- Managers (scaffold/code): `godot_code_manager`, `godot_builder_manager`, `godot_log_manager`, `godot_editor_view_manager`
+- Pipelines / orchestrators: `workflow_manager`, `pixel_manager`, `aseprite_manager`
+- Headless primitives / utilities: `godot_headless_op`, `godot_headless_batch`, `godot_import_project_assets`, `godot_preflight`, `godot_sync_addon`, `list_projects`, `create_scene`, `get_godot_version`, `get_debug_output`
+- Advanced (editor bridge): `godot_rpc`, `godot_inspect`, `godot_editor_batch`
+
 ### 🏗️ Godot Scene Manager (`godot_scene_manager`)
 
 씬과 노드 구조를 관리합니다. (Hybrid 지원)
@@ -418,6 +467,69 @@ npm run clean:tmp
 
 ---
 
+### 🗂️ Godot Project Config Manager (`godot_project_config_manager`)
+
+ProjectSettings / InputMap 등 프로젝트 설정을 관리합니다. (Headless)
+
+- 일부 액션은 `ALLOW_DANGEROUS_OPS=true`가 필요합니다. (`project_setting.set`, `input_map.setup`, `save_game_data`, `load_game_data`)
+
+| 액션                  | 설명                                       | 주요 파라미터                         |
+| :-------------------- | :----------------------------------------- | :------------------------------------ |
+| `project_info.get`    | 프로젝트 기본 정보 조회                    | `projectPath`                         |
+| `project_setting.get` | ProjectSettings 값 조회                    | `projectPath`, `key`                  |
+| `project_setting.set` | ProjectSettings 값 설정 (위험 작업)        | `projectPath`, `key`, `value`         |
+| `input_map.setup`     | InputMap 액션/키 세팅 (위험 작업)          | `projectPath`, `actions` (배열)       |
+| `save_game_data`      | user:// 게임 데이터 저장 (위험 작업)       | `projectPath`, `key`, `value`         |
+| `load_game_data`      | user:// 게임 데이터 로드 (위험 작업)       | `projectPath`, `key`, `defaultValue?` |
+| `errors.get_recent`   | 최근 debug output에서 error-like 라인 추출 | `maxMatches?`                         |
+
+---
+
+### 📝 Godot Code Manager (`godot_code_manager`)
+
+프로젝트 루트 내부에서 스크립트/셰이더/파일 편집을 제공합니다. (Hybrid)
+
+- 기본적으로 overwrite는 차단되며, 덮어쓰기가 필요하면 `ALLOW_DANGEROUS_OPS=true`를 사용하세요.
+
+| 액션                       | 설명                                    | 주요 파라미터                                                                |
+| :------------------------- | :-------------------------------------- | :--------------------------------------------------------------------------- |
+| `script.create`            | GDScript 파일 생성(템플릿/직접 content) | `projectPath`, `scriptPath`, `template?`, `content?`                         |
+| `script.read`              | GDScript 파일 읽기                      | `projectPath`, `scriptPath`, `maxChars?`                                     |
+| `script.attach`            | 노드에 스크립트 attach                  | `projectPath`, `nodePath`, `scriptPath`, `scenePath?`                        |
+| `gdscript.eval_restricted` | 제한된 표현식 평가(에디터 연결 시 RPC)  | `projectPath`, `expression`/`code`, `vars?`                                  |
+| `shader.create`            | `.gdshader` 파일 생성                   | `projectPath`, `shaderPath`, `content?`                                      |
+| `shader.apply`             | 노드 material에 ShaderMaterial 적용     | `projectPath`, `nodePath`, `shaderPath`, `materialProperty?`                 |
+| `file.edit`                | 파일 내 문자열/정규식 치환              | `projectPath`, `filePath`, `find`, `replace?`, `regex?`                      |
+| `file.write_binary`        | 바이너리 파일 쓰기(예: PNG 등)          | `projectPath`, `filePath`, `base64` (overwrite는 `ALLOW_DANGEROUS_OPS=true`) |
+
+---
+
+### 🧱 Godot Builder Manager (`godot_builder_manager`)
+
+자주 쓰는 노드/패턴을 빠르게 스캐폴딩하는 프리셋 도구입니다. (Hybrid)
+
+- 에디터 브릿지 연결 시: 열린 씬을 대상으로 즉시 생성/수정
+- 미연결 시: 가능한 액션은 Headless로 동작하며 보통 `projectPath` + `scenePath`가 필요합니다.
+
+| 액션                      | 설명                                               | 주요 파라미터                                                                |
+| :------------------------ | :------------------------------------------------- | :--------------------------------------------------------------------------- |
+| `lighting_preset`         | 조명/환경 프리셋 생성(2D/3D)                       | `lightingPreset?`, `parentNodePath?`, (Headless: `projectPath`, `scenePath`) |
+| `create_primitive`        | 기본 프리미티브 + 충돌(StaticBody) 생성            | `nodeName`, `primitive?`/`meshPreset?`, `shapePreset?`, `dimension?`         |
+| `create_rigidbody`        | RigidBody(2D/3D) + 충돌 + (3D) 메쉬 생성           | `nodeName`, `shapePreset?`, `mass?`, `size?`, `color?`, `dimension?`         |
+| `create_trigger_area`     | 트리거 Area(2D/3D) + 충돌 생성                     | `nodeName`, `shapePreset?`, `size?`, `debugMesh?`, `dimension?`              |
+| `create_ui_template`      | UI 템플릿(HUD/메뉴/대화창 등) 생성                 | `uiTemplate?`, `elements?`, `parentNodePath?`                                |
+| `set_anchor_preset`       | Control 앵커 프리셋 적용                           | `nodePath`, `anchorPreset`, `keepOffsets?`                                   |
+| `set_anchor_values`       | Control 앵커 값 직접 설정                          | `nodePath`, `anchorLeft`, `anchorTop`, `anchorRight`, `anchorBottom`         |
+| `create_audio_player`     | AudioStreamPlayer(2D/3D) 생성                      | `nodeName`, `dimension?`, `bus?`, `autoplay?`                                |
+| `spawn_fps_controller`    | 3D FPS 컨트롤러 기본 노드 셋업(캐릭터+카메라 등)   | `nodeName?`, `cameraHeight?`, `capsuleRadius?`, `capsuleHeight?`             |
+| `create_health_bar_ui`    | CanvasLayer + ProgressBar 기반 체력바 UI 생성      | `nodeName?`, `width?`, `height?`                                             |
+| `spawn_spinning_pickup`   | 회전 픽업 오브젝트(인스턴스 or 스캐폴딩) 생성      | `nodeName?`, `pickupScenePath?`                                              |
+| `create_particle_effect`  | 간단 파티클 프리셋 생성(Fire/Smoke/Sparks 등)      | `preset?`, `is3d?`, `oneShot?`, `emitting?`, `nodeName?`                     |
+| `generate_terrain_mesh`   | 지형 메쉬 생성(에디터 연결 시 RPC / Headless 대체) | `nodeName`, `parentNodePath?`, (Headless: `projectPath`, `scenePath`)        |
+| `create_terrain_material` | 지형 머티리얼용 `.gdshader` 생성 + 스캔            | `projectPath`, `shaderPath?`, `type?`, `textureScale?`                       |
+
+---
+
 ### 🧩 Aseprite Manager (`aseprite_manager`)
 
 Aseprite CLI 기반으로 스프라이트/스프라이트시트 export를 수행하고, (옵션) Godot 임포트 갱신까지 처리합니다.
@@ -442,6 +554,50 @@ Aseprite CLI 기반으로 스프라이트/스프라이트시트 export를 수행
 
 ---
 
+### 🧱 Pixel Manager (`pixel_manager`)
+
+2D 픽셀 콘텐츠 파이프라인(타일/월드/오브젝트) 실행 및 매니페스트 기반 재현성을 제공합니다. (Headless)
+
+- 자세한 문서: `docs/pixel_pipeline.md`
+- 매니페스트 경로: `res://.godot_mcp/pixel_manifest.json` (`pixel_manager(action="manifest_get")`)
+
+| 액션               | 설명                                        | 주요 파라미터                                                  |
+| :----------------- | :------------------------------------------ | :------------------------------------------------------------- |
+| `project_analyze`  | 프로젝트 분석 및 기본 프로파일 생성         | `projectPath`                                                  |
+| `goal_to_spec`     | goal 텍스트 → plan/spec 변환                | `projectPath`, `goal`, `allowExternalTools?`, `timeoutMs?`     |
+| `tilemap_generate` | 타일시트 PNG + TileSet 생성/갱신            | `projectPath`, `spec`, `reuseExistingSheet?`, `imageGenMode?`  |
+| `world_generate`   | TileMapLayer 기반 월드 씬 생성/갱신         | `projectPath`, `spec`                                          |
+| `layer_ensure`     | 월드 씬 레이어 구조 보강(노드 정리/재배치)  | `projectPath`, `spec`                                          |
+| `object_generate`  | 오브젝트 스프라이트/씬 생성                 | `projectPath`, `spec`, `imageGenMode?`, `allowExternalTools?`  |
+| `object_place`     | 월드 씬에 오브젝트 배치                     | `projectPath`, `spec`                                          |
+| `export_preview`   | TileMapLayer 미리보기 PNG export            | `projectPath`, `spec`                                          |
+| `smoke_test`       | 짧은 헤드리스 스모크 테스트(실행→대기→중지) | `projectPath`                                                  |
+| `macro_run`        | 여러 스텝을 순차 실행 + 매니페스트 기록     | `projectPath`, `goal?`/`plan?`, `exportPreview?`, `smokeTest?` |
+| `manifest_get`     | 마지막 매니페스트 로드                      | `projectPath`                                                  |
+
+---
+
+### 🧬 Workflow Manager (`workflow_manager`)
+
+워크플로(JSON) 실행 러너 및 게임 개발 매크로 오케스트레이터입니다.
+
+- 워크플로 문서: `docs/workflow.md`
+- 매크로 문서: `docs/macro_manager.md`
+
+| 액션                 | 설명                                    | 주요 파라미터                       |
+| :------------------- | :-------------------------------------- | :---------------------------------- |
+| `validate`           | 워크플로 JSON 유효성 검증               | `workflow` 또는 `workflowPath`      |
+| `run`                | 워크플로 실행(steps 순차 실행)          | `workflow` 또는 `workflowPath`      |
+| `macro.list`         | 사용 가능한 매크로 목록                 | -                                   |
+| `macro.describe`     | 특정 매크로 설명 조회                   | `macroId`                           |
+| `macro.plan`         | 매크로 실행 계획 생성(dry-run)          | `macroId`, `projectPath`, `inputs?` |
+| `macro.run`          | 매크로 실행                             | `macroId`, `projectPath`, `inputs?` |
+| `macro.resume`       | 중단된 매크로 재개(가능한 경우)         | `projectPath`                       |
+| `macro.validate`     | 매크로 산출물/씬 구조 검증(가능한 경우) | `projectPath`, `scenes?`            |
+| `macro.manifest_get` | 마지막 매크로 매니페스트 로드           | `projectPath`                       |
+
+---
+
 ### 🚀 Godot Workspace Manager (`godot_workspace_manager`)
 
 프로젝트 라이프사이클 및 에디터 연결을 관리합니다.
@@ -463,12 +619,39 @@ Aseprite CLI 기반으로 스프라이트/스프라이트시트 export를 수행
 
 에디터 GUI를 직접 제어합니다. (Editor Only)
 
-| 액션               | 설명                                   | 주요 파라미터               |
-| :----------------- | :------------------------------------- | :-------------------------- |
-| `capture_viewport` | 에디터 뷰포트 스냅샷 캡처 (Base64 PNG) | `maxSize?`                  |
-| `switch_screen`    | 메인 화면 전환 (2D/3D/Script)          | `screenName`                |
-| `edit_script`      | 스크립트 파일 열기 및 이동             | `scriptPath`, `lineNumber?` |
-| `add_breakpoint`   | 스크립트에 중단점 추가                 | `scriptPath`, `lineNumber`  |
+| 액션                | 설명                                            | 주요 파라미터                                                                                                                                                        |
+| :------------------ | :---------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capture_viewport`  | 에디터 뷰포트 스냅샷 캡처 (Base64 PNG)          | `maxSize?`                                                                                                                                                           |
+| `switch_screen`     | 메인 화면 전환 (2D/3D/Script)                   | `screenName`                                                                                                                                                         |
+| `edit_script`       | 스크립트 파일 열기 및 이동                      | `scriptPath`, `lineNumber?`                                                                                                                                          |
+| `add_breakpoint`    | 스크립트에 중단점 추가                          | `scriptPath`, `lineNumber`                                                                                                                                           |
+| `list_open_scripts` | 에디터에서 열려있는 스크립트 목록 조회          | -                                                                                                                                                                    |
+| `panel.find`        | 에디터 패널(Control 트리)에서 후보 검색         | `rootPath?`, `nameContains?`, `className?`, `textContains?`, `visibleOnly?`, `maxResults?`, `maxNodes?`, `includeTextPreview?`                                       |
+| `panel.read`        | 특정 패널 하위 텍스트를 제한적으로 읽기(최적화) | `panelPath`, `visibleOnly?`, `maxChars?`, `maxNodes?`, `maxItems?`, `includeTreeItems?`, `includeItemLists?`, `includePaths?`, `includeTextEdits?`, `returnEntries?` |
+
+권장 사용 흐름:
+
+1. `panel.find(includeTextPreview=true)`로 `panelPath` 후보를 찾고
+2. `panel.read(panelPath="...")`로 필요한 범위만 읽기
+
+참고:
+
+- 기본값은 **성능/출력 크기 최적화**를 위해 `visibleOnly=true`이며, 코드/긴 텍스트 노출을 줄이기 위해 `includeTextEdits=false` 입니다.
+- 텍스트만 필요하면 `capture_viewport` 대신 `panel.read`가 더 저렴하고 안정적입니다.
+
+---
+
+### 🪵 Godot Log Manager (`godot_log_manager`)
+
+에디터 출력 로그를 읽고(필터링/파싱) 디버깅을 보조합니다. (Editor Only)
+
+- 에디터 브릿지 연결이 필요합니다. (`godot_workspace_manager(action="connect")`)
+
+| 액션           | 설명                                  | 주요 파라미터                                                    |
+| :------------- | :------------------------------------ | :--------------------------------------------------------------- |
+| `tail`         | 최근 로그를 가져오기(기본: 에러 위주) | `pattern?`, `onlyErrors?`, `maxBytes?`, `maxMatches?`            |
+| `poll`         | 커서 기반으로 신규 로그만 폴링        | `cursor?`, `pattern?`, `onlyErrors?`, `maxBytes?`, `maxMatches?` |
+| `clear_output` | 에디터 출력 패널 클리어               | -                                                                |
 
 ---
 
@@ -539,18 +722,23 @@ GUI 없이 여러 작업을 한 번에 처리합니다.
 ```
 godot-mcp-omni/
 ├── src/
-│   ├── server.ts           # MCP 서버 메인
-│   ├── tools/
-│   │   ├── unified.ts      # Unified Managers (action 디스패처)
-│   │   ├── editor.ts       # Editor-bridge 기반 툴
-│   │   ├── headless.ts     # Headless 기반 툴
-│   │   ├── project.ts      # 프로젝트/실행/프리플라이트 도구
-│   │   └── context.ts      # 서버 컨텍스트(상태/유틸)
-│   ├── scripts/
-│   │   └── godot_operations.gd  # Headless 엔진
-├── addons/
-│   └── godot_mcp_bridge/   # Godot 에디터 플러그인 (v0.2.0)
-└── test/                   # 검증 테스트 세트
+│   ├── index.ts                    # CLI / MCP stdio entrypoint
+│   ├── server.ts                   # MCP 서버 메인(라우팅/표준 응답/감사 로그)
+│   ├── doctor.ts                   # CLI doctor (--doctor)
+│   ├── doctor_report/cli_runner.ts # CLI doctor report (--doctor-report)
+│   ├── godot_cli.ts                # Godot 실행 파일 탐지 + 실행 유틸
+│   ├── headless_ops.ts             # headless ops 실행 래퍼
+│   ├── editor_bridge_client.ts     # editor bridge TCP 클라이언트
+│   ├── tools/                      # 도구 핸들러/정의/통합 매니저
+│   │   ├── definitions/            # build-time tool schema (docs/TOOLS.md의 SSOT)
+│   │   └── unified/                # unified managers (workspace/scene/...)
+│   └── scripts/
+│       └── godot_operations.gd     # Headless 엔진(GDScript)
+├── docs/                           # ARCHITECTURE / TOOLS / SECURITY 등
+├── scripts/                        # 설치/검증/도구 문서 생성 스크립트
+├── addons/godot_mcp_bridge/        # Godot 에디터 플러그인(EditorPlugin + TCP bridge)
+├── test/                           # unit + e2e 테스트
+└── build/                          # 빌드 산출물 (npm run build 이후)
 ```
 
 ---

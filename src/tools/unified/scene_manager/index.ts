@@ -23,6 +23,8 @@ import { handleCreateUI } from './create_ui.js';
 import { handleInstance } from './instance.js';
 import {
   handleDuplicate,
+  handleMove,
+  handleRename,
   handleRemove,
   handleReparent,
   handleUndoRedo,
@@ -49,6 +51,8 @@ export function createSceneManagerHandler(
       'create_ui',
       'attach_script',
       'attach_components',
+      'rename',
+      'move',
       'duplicate',
       'reparent',
       'instance',
@@ -123,6 +127,14 @@ export function createSceneManagerHandler(
 
     if (action === 'duplicate') {
       return await handleDuplicate(ctx, baseHandlers, argsObj, timeoutMs);
+    }
+
+    if (action === 'rename') {
+      return await handleRename(ctx, baseHandlers, argsObj, timeoutMs);
+    }
+
+    if (action === 'move') {
+      return await handleMove(ctx, baseHandlers, argsObj, timeoutMs);
     }
 
     if (action === 'reparent') {

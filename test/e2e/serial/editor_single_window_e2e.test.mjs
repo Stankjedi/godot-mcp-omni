@@ -14,7 +14,7 @@ import {
   isWindowsExePath,
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -289,7 +289,7 @@ test(
       writeTestScript(projectPath);
       writeTinyPng(projectPath);
 
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       // Ensure unified tools are registered.
       const listResp = await client.send('tools/list', {}, 30000);
@@ -401,13 +401,17 @@ test(
       );
       assert.equal(portReady, true, 'Editor bridge did not open the TCP port');
 
-      const connectResp = await client.callToolOrThrow('godot_connect_editor', {
-        projectPath,
-        host: connectHost,
-        port,
-        token,
-        timeoutMs: 60000,
-      });
+      const connectResp = await client.callToolOrThrow(
+        'godot_workspace_manager',
+        {
+          action: 'connect',
+          projectPath,
+          host: connectHost,
+          port,
+          token,
+          timeoutMs: 60000,
+        },
+      );
       assert.equal(connectResp.ok, true);
 
       const status = await client.callToolOrThrow('godot_workspace_manager', {
@@ -454,8 +458,9 @@ test(
       assert.equal(rollback.ok, false);
 
       const rollbackQuery = await client.callToolOrThrow(
-        'godot_scene_tree_query',
+        'godot_inspector_manager',
         {
+          action: 'query',
           name: 'RolledBack',
           includeRoot: true,
           limit: 10,
@@ -482,7 +487,8 @@ test(
       });
       assert.equal(batch.ok, true);
 
-      const query = await client.callToolOrThrow('godot_scene_tree_query', {
+      const query = await client.callToolOrThrow('godot_inspector_manager', {
+        action: 'query',
         name: 'BatchNode',
         includeRoot: true,
         limit: 10,
@@ -530,7 +536,8 @@ test(
         'Vector2',
       );
 
-      const dupResp = await client.callToolOrThrow('godot_duplicate_node', {
+      const dupResp = await client.callToolOrThrow('godot_scene_manager', {
+        action: 'duplicate',
         nodePath: batchNodePath,
         newName: 'BatchNodeCopy',
         timeoutMs: 30000,
@@ -545,24 +552,30 @@ test(
         timeoutMs: 30000,
       });
 
-      const reparentResp = await client.callToolOrThrow('godot_reparent_node', {
+      const reparentResp = await client.callToolOrThrow('godot_scene_manager', {
+        action: 'reparent',
         nodePath: batchNodePath,
         newParentPath: 'Parent',
         timeoutMs: 30000,
       });
       assert.equal(reparentResp.ok, true);
 
-      await client.callToolOrThrow('godot_add_scene_instance', {
+      await client.callToolOrThrow('godot_scene_manager', {
+        action: 'instance',
         scenePath: 'res://SubScene.tscn',
         parentPath: 'root',
         name: 'SubInst',
         timeoutMs: 30000,
       });
 
-      const selectResp = await client.callToolOrThrow('godot_select_node', {
-        nodePath: 'SubInst',
-        timeoutMs: 30000,
-      });
+      const selectResp = await client.callToolOrThrow(
+        'godot_inspector_manager',
+        {
+          action: 'select',
+          nodePath: 'SubInst',
+          timeoutMs: 30000,
+        },
+      );
       assert.equal(selectResp.ok, true);
 
       await client.callToolOrThrow('godot_rpc', {
@@ -593,8 +606,9 @@ test(
       });
 
       const disconnectResp = await client.callToolOrThrow(
-        'godot_disconnect_signal',
+        'godot_inspector_manager',
         {
+          action: 'disconnect_signal',
           fromNodePath: 'Emitter',
           signal: 'tree_entered',
           toNodePath: 'Receiver',

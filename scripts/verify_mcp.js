@@ -84,8 +84,11 @@ async function main() {
       }),
     );
 
-    await runStep('get_project_info', async () =>
-      client.callToolOrThrow('get_project_info', { projectPath }),
+    await runStep('godot_project_config_manager project_info.get', async () =>
+      client.callToolOrThrow('godot_project_config_manager', {
+        action: 'project_info.get',
+        projectPath,
+      }),
     );
 
     await runStep('godot_sync_addon', async () =>
@@ -103,19 +106,21 @@ async function main() {
       }),
     );
 
-    await runStep('add_node', async () =>
-      client.callToolOrThrow('add_node', {
+    await runStep('godot_scene_manager create (Sprite2D)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: '.godot_mcp/verify/Verify.tscn',
         parentNodePath: 'root',
         nodeType: 'Sprite2D',
         nodeName: 'Sprite',
-        properties: {},
+        props: {},
       }),
     );
 
-    await runStep('save_scene', async () =>
-      client.callToolOrThrow('save_scene', {
+    await runStep('godot_workspace_manager save_scene', async () =>
+      client.callToolOrThrow('godot_workspace_manager', {
+        action: 'save_scene',
         projectPath,
         scenePath: '.godot_mcp/verify/Verify.tscn',
       }),
@@ -138,8 +143,9 @@ async function main() {
     );
     await fs.writeFile(path.join(projectPath, 'icon.png'), pngBytes);
 
-    await runStep('load_sprite', async () =>
-      client.callToolOrThrow('load_sprite', {
+    await runStep('godot_asset_manager load_texture', async () =>
+      client.callToolOrThrow('godot_asset_manager', {
+        action: 'load_texture',
         projectPath,
         scenePath: '.godot_mcp/verify/Verify.tscn',
         nodePath: 'root/Sprite',
@@ -180,17 +186,19 @@ async function main() {
       }),
     );
 
-    await runStep('get_uid', async () =>
-      client.callToolOrThrow('get_uid', {
+    await runStep('godot_asset_manager get_uid', async () =>
+      client.callToolOrThrow('godot_asset_manager', {
+        action: 'get_uid',
         projectPath,
         filePath: '.godot_mcp/verify/BoxMesh.tres',
       }),
     );
 
-    await runStep('run_project', async () =>
-      client.callToolOrThrow('run_project', {
+    await runStep('godot_workspace_manager run', async () =>
+      client.callToolOrThrow('godot_workspace_manager', {
+        action: 'run',
         projectPath,
-        headless: SKIP_EDITOR,
+        ...(SKIP_EDITOR ? { mode: 'headless' } : {}),
         scene: 'res://.godot_mcp/verify/Verify.tscn',
       }),
     );
@@ -200,19 +208,26 @@ async function main() {
     await runStep('get_debug_output', async () =>
       client.callToolOrThrow('get_debug_output', {}),
     );
-    await runStep('stop_project', async () =>
-      client.callToolOrThrow('stop_project', {}),
+    await runStep('godot_workspace_manager stop', async () =>
+      client.callToolOrThrow('godot_workspace_manager', {
+        action: 'stop',
+        ...(SKIP_EDITOR ? { mode: 'headless' } : {}),
+      }),
     );
 
     if (SKIP_EDITOR) {
       console.log('SKIP_EDITOR: skipping editor launch and RPC checks');
     } else {
-      await runStep('launch_editor', async () =>
-        client.callToolOrThrow('launch_editor', { projectPath }),
+      await runStep('godot_workspace_manager launch', async () =>
+        client.callToolOrThrow('godot_workspace_manager', {
+          action: 'launch',
+          projectPath,
+        }),
       );
 
-      await runStep('godot_connect_editor', async () =>
-        client.callToolOrThrow('godot_connect_editor', {
+      await runStep('godot_workspace_manager connect', async () =>
+        client.callToolOrThrow('godot_workspace_manager', {
+          action: 'connect',
           projectPath,
           token: TOKEN,
           port: PORT,

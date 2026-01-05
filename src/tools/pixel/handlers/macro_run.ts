@@ -200,6 +200,14 @@ export async function runMacroRun(
     goalLower.includes('preview') ||
     goalLower.includes('screenshot');
 
+  const stepAction = (step: MacroStep): string => {
+    const raw = asOptionalString(
+      step.args.action,
+      'plan[].args.action',
+    )?.trim();
+    return raw ? raw.toLowerCase() : '';
+  };
+
   const shouldSmokeTest =
     smokeTestRequested || (!hasExplicitPlan && smokeFromGoal);
   const shouldExportPreview =
@@ -209,12 +217,8 @@ export async function runMacroRun(
     for (let i = plan.length - 1; i >= 0; i -= 1) {
       const step = plan[i];
       if (!step) continue;
-      if (
-        step.tool !== 'pixel_world_generate' &&
-        step.tool !== 'pixel_layer_ensure'
-      ) {
-        continue;
-      }
+      const action = stepAction(step);
+      if (action !== 'world_generate' && action !== 'layer_ensure') continue;
 
       const spec = asOptionalRecord(step.args.spec, 'macro.spec') ?? {};
       const scenePathRaw =
@@ -229,46 +233,56 @@ export async function runMacroRun(
     return null;
   };
 
-  const inferredWorldScenePath = plan.some(
-    (s) => s.tool === 'pixel_world_generate' || s.tool === 'pixel_layer_ensure',
-  )
+  const inferredWorldScenePath = plan.some((s) => {
+    const action = stepAction(s);
+    return action === 'world_generate' || action === 'layer_ensure';
+  })
     ? (inferWorldScenePath() ?? 'res://scenes/generated/world/World.tscn')
     : null;
 
   if (
     shouldExportPreview &&
-    !plan.some((s) => s.tool === 'pixel_export_preview')
+    !plan.some((s) => stepAction(s) === 'export_preview')
   ) {
     const spec: Record<string, unknown> = {};
     if (inferredWorldScenePath) spec.scenePath = inferredWorldScenePath;
     if (previewOutputPngPath) spec.outputPngPath = previewOutputPngPath;
 
     plan.push({
-      tool: 'pixel_export_preview',
-      args: Object.keys(spec).length > 0 ? { spec } : {},
+      tool: 'pixel_manager',
+      args: {
+        action: 'export_preview',
+        ...(Object.keys(spec).length > 0 ? { spec } : {}),
+      },
     });
   }
 
-  if (shouldSmokeTest && !plan.some((s) => s.tool === 'pixel_smoke_test')) {
-    const args: Record<string, unknown> = { waitMs: smokeWaitMs };
-    if (inferredWorldScenePath) args.scenePath = inferredWorldScenePath;
-
+  if (shouldSmokeTest && !plan.some((s) => stepAction(s) === 'smoke_test')) {
     plan.push({
-      tool: 'pixel_smoke_test',
-      args,
+      tool: 'pixel_manager',
+      args: {
+        action: 'smoke_test',
+        waitMs: smokeWaitMs,
+        ...(inferredWorldScenePath
+          ? { scenePath: inferredWorldScenePath }
+          : {}),
+      },
     });
   }
 
   type MacroNode = {
     id: string;
-    tool: string;
+    tool: 'pixel_manager';
+    action: string;
+    stepName: string;
     args: Record<string, unknown>;
     dependsOn: string[];
     cacheKey: string;
   };
 
   const toEffectiveArgs = (step: MacroStep): Record<string, unknown> => {
-    if (step.tool === 'pixel_tilemap_generate') {
+    const action = stepAction(step);
+    if (action === 'tilemap_generate') {
       return {
         projectPath,
         ...step.args,
@@ -276,7 +290,7 @@ export async function runMacroRun(
         allowExternalTools,
       };
     }
-    if (step.tool === 'pixel_world_generate') {
+    if (action === 'world_generate') {
       const spec = asOptionalRecord(step.args.spec, 'macro.spec') ?? {};
       return {
         projectPath,
@@ -284,10 +298,10 @@ export async function runMacroRun(
         spec: { ...spec, seed },
       };
     }
-    if (step.tool === 'pixel_layer_ensure') {
+    if (action === 'layer_ensure') {
       return { projectPath, ...step.args };
     }
-    if (step.tool === 'pixel_object_generate') {
+    if (action === 'object_generate') {
       return {
         projectPath,
         ...step.args,
@@ -295,26 +309,38 @@ export async function runMacroRun(
         allowExternalTools,
       };
     }
-    if (step.tool === 'pixel_object_place') {
+    if (action === 'object_place') {
       return { projectPath, ...step.args, seed };
     }
-    if (step.tool === 'pixel_smoke_test') {
+    if (action === 'smoke_test') {
       return { projectPath, ...step.args };
     }
-    if (step.tool === 'pixel_export_preview') {
+    if (action === 'export_preview') {
       return { projectPath, ...step.args };
     }
     return { projectPath, ...step.args };
   };
 
   const nodes: MacroNode[] = plan.map((step, i) => {
+    const action = stepAction(step);
+    if (!action) {
+      throw new Error(
+        `Invalid macro plan step: missing args.action (index=${i})`,
+      );
+    }
     const effectiveArgs = toEffectiveArgs(step);
+    const argsForCache: Record<string, unknown> = { ...effectiveArgs };
+    delete argsForCache.action;
+
+    const stepName = `pixel_${action}`;
     const cacheKey = sha1(
-      stableJsonStringify({ tool: step.tool, args: effectiveArgs }),
+      stableJsonStringify({ tool: stepName, args: argsForCache }),
     );
     return {
       id: `step${i + 1}`,
-      tool: step.tool,
+      tool: 'pixel_manager',
+      action,
+      stepName,
       args: effectiveArgs,
       dependsOn: [],
       cacheKey,
@@ -328,32 +354,29 @@ export async function runMacroRun(
   let lastPlacement: string | null = null;
   for (const node of nodes) {
     const deps: string[] = [];
-    if (node.tool === 'pixel_tilemap_generate') {
+    if (node.action === 'tilemap_generate') {
       // no deps
-    } else if (node.tool === 'pixel_layer_ensure') {
+    } else if (node.action === 'layer_ensure') {
       if (lastTileset) deps.push(lastTileset);
-    } else if (node.tool === 'pixel_world_generate') {
+    } else if (node.action === 'world_generate') {
       if (lastTileset) deps.push(lastTileset);
-    } else if (node.tool === 'pixel_object_place') {
+    } else if (node.action === 'object_place') {
       if (lastWorld) deps.push(lastWorld);
       if (lastObjects) deps.push(lastObjects);
     } else if (
-      node.tool === 'pixel_smoke_test' ||
-      node.tool === 'pixel_export_preview'
+      node.action === 'smoke_test' ||
+      node.action === 'export_preview'
     ) {
       if (lastPlacement) deps.push(lastPlacement);
       else if (lastWorld) deps.push(lastWorld);
     }
     node.dependsOn = Array.from(new Set(deps));
 
-    if (node.tool === 'pixel_tilemap_generate') lastTileset = node.id;
-    if (
-      node.tool === 'pixel_layer_ensure' ||
-      node.tool === 'pixel_world_generate'
-    )
+    if (node.action === 'tilemap_generate') lastTileset = node.id;
+    if (node.action === 'layer_ensure' || node.action === 'world_generate')
       lastWorld = node.id;
-    if (node.tool === 'pixel_object_generate') lastObjects = node.id;
-    if (node.tool === 'pixel_object_place') lastPlacement = node.id;
+    if (node.action === 'object_generate') lastObjects = node.id;
+    if (node.action === 'object_place') lastPlacement = node.id;
   }
 
   const topoSort = (input: MacroNode[]): MacroNode[] => {
@@ -530,7 +553,7 @@ export async function runMacroRun(
           summary: 'Skipped (cache hit)',
           details: { cacheKey: node.cacheKey, skipped: true },
         };
-      } else if (!forceRegenerate && node.tool === 'pixel_world_generate') {
+      } else if (!forceRegenerate && node.action === 'world_generate') {
         const skip = await canSkipWorld(node.args);
         if (skip) {
           skipped = true;
@@ -544,49 +567,43 @@ export async function runMacroRun(
           res = r.response;
           if (r.outputs) outputs.world = r.outputs;
         }
-      } else if (node.tool === 'pixel_tilemap_generate') {
+      } else if (node.action === 'tilemap_generate') {
         const r = await runTilemapGenerate(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.tileset = r.outputs;
-      } else if (node.tool === 'pixel_layer_ensure') {
+      } else if (node.action === 'layer_ensure') {
         const r = await runLayerEnsure(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.layers = r.outputs;
-      } else if (node.tool === 'pixel_object_generate') {
+      } else if (node.action === 'object_generate') {
         const r = await runObjectGenerate(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.objects = r.outputs;
-      } else if (node.tool === 'pixel_object_place') {
+      } else if (node.action === 'object_place') {
         const r = await runObjectPlace(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.placement = r.outputs;
-      } else if (node.tool === 'pixel_smoke_test') {
+      } else if (node.action === 'smoke_test') {
         const r = await runSmokeTest(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.smokeTest = r.outputs;
-      } else if (node.tool === 'pixel_export_preview') {
+      } else if (node.action === 'export_preview') {
         const r = await runExportPreview(ctx, baseHandlers, node.args);
         res = r.response;
         if (r.outputs) outputs.preview = r.outputs;
-      } else if (node.tool === 'pixel_project_analyze') {
-        res = {
-          ok: true,
-          summary: 'Skipped (analysis is implicit)',
-          details: {},
-        };
       } else {
         res = {
           ok: false,
-          summary: `Unsupported macro step tool: ${node.tool}`,
+          summary: `Unsupported macro step action: ${node.action}`,
           details: {
-            supported: [
-              'pixel_tilemap_generate',
-              'pixel_layer_ensure',
-              'pixel_world_generate',
-              'pixel_object_generate',
-              'pixel_object_place',
-              'pixel_smoke_test',
-              'pixel_export_preview',
+            supportedActions: [
+              'tilemap_generate',
+              'layer_ensure',
+              'world_generate',
+              'object_generate',
+              'object_place',
+              'smoke_test',
+              'export_preview',
             ],
           },
         };
@@ -595,19 +612,19 @@ export async function runMacroRun(
       res = {
         ok: false,
         summary: error instanceof Error ? error.message : String(error),
-        details: { tool: node.tool },
+        details: { tool: node.tool, action: node.action, step: node.stepName },
       };
     }
 
     steps.push({
-      name: node.tool,
+      name: node.stepName,
       startedAt,
       finishedAt: nowIso(),
       ok: Boolean(res.ok),
       summary: res.summary,
       details: {
         ...(res.details ?? {}),
-        step: node.tool,
+        step: node.stepName,
         id: node.id,
         dependsOn: node.dependsOn,
         cacheKey: node.cacheKey,
@@ -628,6 +645,8 @@ export async function runMacroRun(
     dag: ordered.map((n) => ({
       id: n.id,
       tool: n.tool,
+      action: n.action,
+      step: n.stepName,
       dependsOn: n.dependsOn,
       cacheKey: n.cacheKey,
     })),

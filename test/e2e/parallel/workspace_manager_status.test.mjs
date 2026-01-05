@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_client.js';
-import { startServer, waitForServerStartup } from '../helpers.mjs';
+import { startServer, waitForServerReady } from '../helpers.mjs';
 
 test('godot_workspace_manager status returns connection state (CI-safe)', async () => {
   const server = startServer({ GODOT_PATH: '' });
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const resp = await client.callTool('godot_workspace_manager', {
       action: 'status',
     });

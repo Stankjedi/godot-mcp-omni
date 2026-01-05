@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_client.js';
-import { startServer, waitForServerStartup } from '../helpers.mjs';
+import { startServer, waitForServerReady } from '../helpers.mjs';
 
 function toolNamesFromListResult(result) {
   const tools = result && typeof result === 'object' ? result.tools : undefined;
@@ -27,7 +27,7 @@ test('godot_log_manager is registered and rejects when not connected (CI-safe)',
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
     const listResp = await client.send('tools/list', {});
     if ('error' in listResp) {

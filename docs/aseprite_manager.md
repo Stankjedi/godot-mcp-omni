@@ -14,7 +14,10 @@ Key principles:
 - Set `ALLOW_EXTERNAL_TOOLS=true`.
 - Provide Aseprite via either:
   - `ASEPRITE_PATH` (directory or executable), or
+  - Steam install auto-detection (Windows/WSL), or
   - `aseprite` available in `PATH`.
+
+On Windows/WSL, Steam auto-detection uses `steamapps/libraryfolders.vdf` (when available) and common Steam install paths.
 
 ## Path rules (res:// mapping)
 
@@ -81,13 +84,13 @@ It runs:
 #### Run it
 
 1. Edit the workflow and set `inputFile` to a real `.aseprite` file inside your project.
-2. Ensure the prerequisites are set (`ALLOW_EXTERNAL_TOOLS=true` and `ASEPRITE_PATH` or `aseprite` in `PATH`).
+2. Ensure the prerequisites are set (`ALLOW_EXTERNAL_TOOLS=true` and Aseprite available via Steam auto-detection, `ASEPRITE_PATH`, or `aseprite` in `PATH`).
 3. Run:
 
 ```bash
 cd godot-mcp-omni
-ALLOW_EXTERNAL_TOOLS=true ASEPRITE_PATH="/path/to/Aseprite-or-dir" \
-  npm run workflow:run -- --workflow scripts/workflow_aseprite_manager_example.json --project ../test_project --ci-safe
+ALLOW_EXTERNAL_TOOLS=true \
+  npm run workflow:run -- scripts/workflow_aseprite_manager_example.json --workflow-project /path/to/your-godot-project --ci-safe
 ```
 
 Notes:

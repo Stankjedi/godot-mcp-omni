@@ -22,7 +22,7 @@ export async function runManifestGet(
       details: {
         manifestPath: PIXEL_MANIFEST_RES_PATH,
         suggestions: [
-          'Run pixel_macro_run (or any pixel_* tool that writes a manifest) first.',
+          'Run pixel_manager(action="macro_run") (or any pixel_manager action that writes a manifest) first.',
         ],
       },
     };

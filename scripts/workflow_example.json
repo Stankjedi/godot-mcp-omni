@@ -10,10 +10,10 @@
     },
     {
       "id": "EX-002",
-      "title": "macro_manager list_macros (CI-safe)",
-      "tool": "macro_manager",
+      "title": "workflow_manager macro.list (CI-safe)",
+      "tool": "workflow_manager",
       "args": {
-        "action": "list_macros"
+        "action": "macro.list"
       }
     }
   ]

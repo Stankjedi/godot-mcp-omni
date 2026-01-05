@@ -64,6 +64,7 @@ func _ensure_op_registry() -> void:
 		base_dir + "/godot_ops/doctor_ops.gd",
 		base_dir + "/godot_ops/scene_ops.gd",
 		base_dir + "/godot_ops/file_ops.gd",
+		base_dir + "/godot_ops/project_config_ops.gd",
 		base_dir + "/godot_ops/resource_ops.gd",
 		base_dir + "/godot_ops/pixel_tileset_ops.gd",
 		base_dir + "/godot_ops/pixel_world_ops.gd",

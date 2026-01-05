@@ -69,7 +69,7 @@ export function createLogManagerHandler(
     const actionRaw = asNonEmptyString(argsObj.action, 'action');
     const action = normalizeAction(actionRaw);
 
-    const supportedActions = ['poll', 'tail'];
+    const supportedActions = ['poll', 'tail', 'clear_output'];
 
     if (!hasEditorConnection(ctx))
       return requireEditorConnected('godot_log_manager');
@@ -93,6 +93,20 @@ export function createLogManagerHandler(
     const rawPattern =
       typeof argsObj.pattern === 'string' ? argsObj.pattern.trim() : '';
     const pattern = rawPattern ? new RegExp(rawPattern, 'iu') : null;
+
+    if (action === 'clear_output') {
+      const resp = await callBaseTool(baseHandlers, 'godot_rpc', {
+        request_json: { method: 'log.clear_output', params: {} },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      });
+      return {
+        ok: resp.ok,
+        summary: resp.ok
+          ? 'godot_log_manager: output cleared'
+          : 'godot_log_manager: clear failed',
+        details: { response: resp },
+      };
+    }
 
     if (action === 'poll' || action === 'tail') {
       const cursorRaw = asOptionalNumber(argsObj.cursor, 'cursor');

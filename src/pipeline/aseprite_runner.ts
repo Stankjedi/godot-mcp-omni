@@ -94,7 +94,188 @@ function resolveAsepriteExecutableFromPath(value: string): string | null {
   return null;
 }
 
+function isWslEnv(env: NodeJS.ProcessEnv): boolean {
+  return Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
+}
+
+export function extractSteamLibraryPathsFromVdfText(vdfText: string): string[] {
+  if (!vdfText) return [];
+
+  const found: string[] = [];
+
+  for (const match of vdfText.matchAll(/"path"\s*"([^"]+)"/giu)) {
+    const raw = match[1]?.trim();
+    if (!raw) continue;
+    found.push(raw.replaceAll('\\\\', '\\'));
+  }
+
+  if (found.length === 0) {
+    // Legacy Steam VDF format: numeric keys map to library paths directly.
+    for (const match of vdfText.matchAll(/^\s*"\d+"\s*"([^"]+)"\s*$/gmu)) {
+      const raw = match[1]?.trim();
+      if (!raw) continue;
+      found.push(raw.replaceAll('\\\\', '\\'));
+    }
+  }
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of found) {
+    const normalized = p.replace(/[\\/]+$/u, '');
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+
+  return out;
+}
+
+function discoverSteamLibraryFoldersVdfCandidates(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (p: string): void => {
+    if (!p) return;
+    const trimmed = p.trim();
+    if (!trimmed) return;
+    if (seen.has(trimmed)) return;
+    seen.add(trimmed);
+    out.push(trimmed);
+  };
+
+  if (process.platform === 'win32') {
+    const pf86 = (process.env['ProgramFiles(x86)'] ?? '').trim();
+    const pf = (process.env.ProgramFiles ?? '').trim();
+
+    const steamRoots = [
+      pf86 ? path.join(pf86, 'Steam') : '',
+      pf ? path.join(pf, 'Steam') : '',
+      'C:\\Program Files (x86)\\Steam',
+      'C:\\Program Files\\Steam',
+    ].filter(Boolean);
+
+    for (const steamRoot of steamRoots) {
+      push(path.join(steamRoot, 'steamapps', 'libraryfolders.vdf'));
+    }
+
+    return out;
+  }
+
+  if (process.platform === 'linux' && isWslEnv(process.env)) {
+    const steamRoots = [
+      'C:\\Program Files (x86)\\Steam',
+      'C:\\Program Files\\Steam',
+    ];
+
+    for (const steamRoot of steamRoots) {
+      push(
+        path.join(
+          windowsDrivePathToWslPath(steamRoot),
+          'steamapps',
+          'libraryfolders.vdf',
+        ),
+      );
+    }
+
+    return out;
+  }
+
+  const home = (process.env.HOME ?? '').trim();
+  if (home) {
+    const steamRoots = [
+      path.join(home, '.local', 'share', 'Steam'),
+      path.join(home, '.steam', 'steam'),
+      path.join(
+        home,
+        '.var',
+        'app',
+        'com.valvesoftware.Steam',
+        '.local',
+        'share',
+        'Steam',
+      ),
+    ];
+    for (const steamRoot of steamRoots) {
+      push(path.join(steamRoot, 'steamapps', 'libraryfolders.vdf'));
+    }
+  }
+
+  return out;
+}
+
+function discoverSteamAsepriteCandidates(): string[] {
+  const candidates: string[] = [];
+
+  for (const vdfPathCandidate of discoverSteamLibraryFoldersVdfCandidates()) {
+    const st = tryStat(vdfPathCandidate);
+    if (!st.exists || !st.isFile) continue;
+
+    let raw: string;
+    try {
+      raw = fs.readFileSync(vdfPathCandidate, 'utf8');
+    } catch {
+      continue;
+    }
+
+    const wsl = process.platform === 'linux' && isWslEnv(process.env);
+    const libraryPaths = extractSteamLibraryPathsFromVdfText(raw).map((p) =>
+      wsl ? windowsDrivePathToWslPath(p) : p,
+    );
+    const steamappsDir = path.dirname(vdfPathCandidate);
+    const steamRoot = path.dirname(steamappsDir);
+    const roots = [steamRoot, ...libraryPaths];
+
+    for (const root of roots) {
+      const rootTrimmed = root.trim();
+      if (!rootTrimmed) continue;
+
+      const commonDir = path.join(
+        rootTrimmed,
+        'steamapps',
+        'common',
+        'Aseprite',
+      );
+      if (process.platform === 'win32') {
+        candidates.push(
+          path.join(commonDir, 'Aseprite.exe'),
+          path.join(commonDir, 'aseprite.exe'),
+          commonDir,
+        );
+      } else if (process.platform === 'linux' && isWslEnv(process.env)) {
+        candidates.push(
+          path.join(commonDir, 'Aseprite.exe'),
+          path.join(commonDir, 'aseprite.exe'),
+          commonDir,
+        );
+      } else {
+        candidates.push(
+          path.join(commonDir, 'aseprite'),
+          path.join(commonDir, 'Aseprite'),
+          commonDir,
+        );
+      }
+    }
+  }
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const c of candidates) {
+    const trimmed = c.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+
+  return out;
+}
+
 function defaultAsepriteCandidates(): string[] {
+  const fromSteam = discoverSteamAsepriteCandidates();
+  if (fromSteam.length > 0) {
+    return [...fromSteam, 'aseprite'];
+  }
+
   // Steam default on Windows and typical WSL mount equivalent.
   if (process.platform === 'win32') {
     return [
@@ -103,6 +284,10 @@ function defaultAsepriteCandidates(): string[] {
       'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Aseprite',
       'aseprite',
     ];
+  }
+
+  if (process.platform === 'linux' && !isWslEnv(process.env)) {
+    return ['aseprite'];
   }
 
   return [

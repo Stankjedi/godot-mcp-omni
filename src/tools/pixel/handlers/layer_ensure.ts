@@ -70,7 +70,7 @@ export async function runLayerEnsure(
         summary: 'No tilesetPath provided and no existing TileSet detected',
         details: {
           suggestions: [
-            'Run pixel_tilemap_generate first, or pass spec.tilesetPath.',
+            'Run pixel_manager(action="tilemap_generate") first, or pass spec.tilesetPath.',
           ],
         },
       };

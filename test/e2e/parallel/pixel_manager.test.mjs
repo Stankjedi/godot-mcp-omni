@@ -6,11 +6,11 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
-test('pixel_manager forwards goal_to_spec to pixel_goal_to_spec', async () => {
+test('pixel_manager goal_to_spec returns a validated plan (CI-safe)', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-pixel-manager-');
   writeMinimalProject(projectPath, 'PixelManagerTest');
 
@@ -18,7 +18,7 @@ test('pixel_manager forwards goal_to_spec to pixel_goal_to_spec', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
     const resp = await client.callTool('pixel_manager', {
       action: 'goal_to_spec',
@@ -30,6 +30,7 @@ test('pixel_manager forwards goal_to_spec to pixel_goal_to_spec', async () => {
     assert.equal(resp.summary, 'Goal converted to pixel specs');
     assert.ok(resp.details && typeof resp.details === 'object');
     assert.ok(Array.isArray(resp.details.plan));
+    assert.equal(resp.details.plan[0]?.tool, 'pixel_manager');
   } finally {
     client.dispose();
     server.kill();

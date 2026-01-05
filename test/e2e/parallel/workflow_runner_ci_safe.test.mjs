@@ -31,7 +31,7 @@ test('workflow runner executes a minimal workflow (CI-safe)', () => {
   try {
     const proc = spawnSync(
       process.execPath,
-      ['scripts/run_workflow.js', '--workflow', workflowPath, '--ci-safe'],
+      ['build/index.js', '--run-workflow', workflowPath, '--ci-safe'],
       { cwd: process.cwd(), encoding: 'utf8' },
     );
 

@@ -28,10 +28,10 @@ These are the **tool argument payloads** you’d send via your MCP client.
 1. Connect to editor
 
 ```json
-{ "projectPath": "C:/Projects/MyGame", "timeoutMs": 60000 }
+{ "action": "connect", "projectPath": "C:/Projects/MyGame", "timeoutMs": 60000 }
 ```
 
-Tool: `godot_connect_editor`
+Tool: `godot_workspace_manager`
 
 2. Health / ping
 
@@ -153,7 +153,7 @@ Tool: `godot_inspect`
 
 ## Troubleshooting editor connection
 
-If `godot_connect_editor` fails, inspect the `details` block:
+If `godot_workspace_manager(action="connect")` fails, inspect the `details` block:
 
 - `host`, `port`, `timeoutMs` to confirm the endpoint.
 - `tokenSource` to verify where the token came from.

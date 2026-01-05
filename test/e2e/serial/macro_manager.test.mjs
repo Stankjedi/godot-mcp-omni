@@ -7,18 +7,18 @@ import {
   mkdtemp,
   resolveResPath,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
-test('macro_manager list_macros works without projectPath', async () => {
+test('workflow_manager macro.list works without projectPath', async () => {
   const server = startServer({ GODOT_PATH: '' });
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
-    const resp = await client.callTool('macro_manager', {
-      action: 'list_macros',
+    await waitForServerReady(client);
+    const resp = await client.callTool('workflow_manager', {
+      action: 'macro.list',
     });
     assert.equal(resp.ok, true);
     assert.ok(resp.details && Array.isArray(resp.details.macros));
@@ -41,7 +41,7 @@ test('macro_manager list_macros works without projectPath', async () => {
   }
 });
 
-test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
+test('workflow_manager macro.plan/macro.run(dryRun) work without GODOT_PATH', async () => {
   const projectPath = mkdtemp('godot-mcp-omni-macro-manager-');
   writeMinimalProject(projectPath, 'MacroManagerTest');
 
@@ -49,10 +49,10 @@ test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
-    const planResp = await client.callTool('macro_manager', {
-      action: 'plan',
+    const planResp = await client.callTool('workflow_manager', {
+      action: 'macro.plan',
       projectPath,
       macroId: 'input_system_scaffold',
     });
@@ -60,8 +60,8 @@ test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
     assert.ok(planResp.details && Array.isArray(planResp.details.plans));
     assert.ok(Array.isArray(planResp.details.plans[0].operations));
 
-    const planWithPixel = await client.callTool('macro_manager', {
-      action: 'plan',
+    const planWithPixel = await client.callTool('workflow_manager', {
+      action: 'macro.plan',
       projectPath,
       macros: [
         'input_system_scaffold',
@@ -80,8 +80,8 @@ test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
     assert.ok(planWithPixel.details.composeMainScene);
     assert.ok(Array.isArray(planWithPixel.details.composeMainScene.operations));
 
-    const dryRunResp = await client.callTool('macro_manager', {
-      action: 'run',
+    const dryRunResp = await client.callTool('workflow_manager', {
+      action: 'macro.run',
       projectPath,
       macros: ['input_system_scaffold', 'character_controller_2d_scaffold'],
       dryRun: true,
@@ -89,8 +89,8 @@ test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
     assert.equal(dryRunResp.ok, true);
     assert.match(dryRunResp.summary, /dryRun/u);
 
-    const dryRunWithPixel = await client.callTool('macro_manager', {
-      action: 'run',
+    const dryRunWithPixel = await client.callTool('workflow_manager', {
+      action: 'macro.run',
       projectPath,
       macros: [
         'input_system_scaffold',
@@ -115,7 +115,7 @@ test('macro_manager plan/run(dryRun) work without GODOT_PATH', async () => {
 });
 
 test(
-  'macro_manager run creates scaffold outputs (headless)',
+  'workflow_manager macro.run creates scaffold outputs (headless)',
   { skip: !process.env.GODOT_PATH },
   async () => {
     const projectPath = mkdtemp('godot-mcp-omni-macro-manager-e2e-');
@@ -125,9 +125,9 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
-      const resp = await client.callTool('macro_manager', {
-        action: 'run',
+      await waitForServerReady(client);
+      const resp = await client.callTool('workflow_manager', {
+        action: 'macro.run',
         projectPath,
         macros: ['input_system_scaffold', 'character_controller_2d_scaffold'],
         validate: true,

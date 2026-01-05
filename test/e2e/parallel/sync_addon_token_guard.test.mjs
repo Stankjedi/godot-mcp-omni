@@ -7,7 +7,7 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -22,7 +22,7 @@ test('godot_sync_addon ensures .godot_mcp_token exists (CI-safe)', async () => {
     writeMinimalProject(projectPath, 'sync-addon-token-guard');
     assert.equal(fs.existsSync(tokenPath), false);
 
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
     const first = await client.callToolOrThrow('godot_sync_addon', {
       projectPath,

@@ -9,14 +9,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const runnerPath = path.join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'scripts',
-  'run_mcp_scenarios.js',
-);
+const runnerPath = path.join(__dirname, '..', '..', '..', 'build', 'index.js');
 
 async function pathExists(p) {
   try {
@@ -38,7 +31,7 @@ test('Scenario runner supports --out-dir report generation and --no-report', asy
   try {
     const resWrite = spawnSync(
       process.execPath,
-      [runnerPath, '--ci-safe', '--out-dir', tmp],
+      [runnerPath, '--run-scenarios', '--ci-safe', '--out-dir', tmp],
       { encoding: 'utf8' },
     );
 
@@ -66,7 +59,14 @@ test('Scenario runner supports --out-dir report generation and --no-report', asy
 
     const resNoReport = spawnSync(
       process.execPath,
-      [runnerPath, '--ci-safe', '--no-report', '--out-dir', tmp],
+      [
+        runnerPath,
+        '--run-scenarios',
+        '--ci-safe',
+        '--no-report',
+        '--out-dir',
+        tmp,
+      ],
       { encoding: 'utf8' },
     );
 

@@ -88,8 +88,11 @@ async function main() {
     await wait(500);
 
     // Test 1: Get project info
-    await runTest('get_project_info', async () =>
-      client.callToolOrThrow('get_project_info', { projectPath }),
+    await runTest('godot_project_config_manager(project_info.get)', async () =>
+      client.callToolOrThrow('godot_project_config_manager', {
+        action: 'project_info.get',
+        projectPath,
+      }),
     );
 
     // Test 2: Create Player.tscn scene with CharacterBody2D root
@@ -102,8 +105,9 @@ async function main() {
     );
 
     // Test 3: Add Sprite2D node to Player scene
-    await runTest('add_node (Sprite2D)', async () =>
-      client.callToolOrThrow('add_node', {
+    await runTest('godot_scene_manager(create Sprite2D)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: 'scenes/Player.tscn',
         parentNodePath: 'root',
@@ -113,8 +117,9 @@ async function main() {
     );
 
     // Test 4: Add CollisionShape2D node
-    await runTest('add_node (CollisionShape2D)', async () =>
-      client.callToolOrThrow('add_node', {
+    await runTest('godot_scene_manager(create CollisionShape2D)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: 'scenes/Player.tscn',
         parentNodePath: 'root',
@@ -132,8 +137,9 @@ async function main() {
     console.log('  Created player.png texture');
 
     // Test 6: Load sprite texture
-    await runTest('load_sprite (player.png)', async () =>
-      client.callToolOrThrow('load_sprite', {
+    await runTest('godot_asset_manager(load_texture player.png)', async () =>
+      client.callToolOrThrow('godot_asset_manager', {
+        action: 'load_texture',
         projectPath,
         scenePath: 'scenes/Player.tscn',
         nodePath: 'root/PlayerSprite',
@@ -142,8 +148,9 @@ async function main() {
     );
 
     // Test 7: Save scene
-    await runTest('save_scene', async () =>
-      client.callToolOrThrow('save_scene', {
+    await runTest('godot_workspace_manager(save_scene)', async () =>
+      client.callToolOrThrow('godot_workspace_manager', {
+        action: 'save_scene',
         projectPath,
         scenePath: 'scenes/Player.tscn',
       }),
@@ -159,26 +166,28 @@ async function main() {
     );
 
     // Test 9: Add Button to UI
-    await runTest('add_node (Button)', async () =>
-      client.callToolOrThrow('add_node', {
+    await runTest('godot_scene_manager(create Button)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: 'scenes/ui/MainMenu.tscn',
         parentNodePath: 'root',
         nodeType: 'Button',
         nodeName: 'StartButton',
-        properties: { text: 'Start Game' },
+        props: { text: 'Start Game' },
       }),
     );
 
     // Test 10: Add Label to UI
-    await runTest('add_node (Label)', async () =>
-      client.callToolOrThrow('add_node', {
+    await runTest('godot_scene_manager(create Label)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: 'scenes/ui/MainMenu.tscn',
         parentNodePath: 'root',
         nodeType: 'Label',
         nodeName: 'TitleLabel',
-        properties: { text: 'My Game' },
+        props: { text: 'My Game' },
       }),
     );
 
@@ -192,8 +201,9 @@ async function main() {
     );
 
     // Test 12: Add MeshInstance3D
-    await runTest('add_node (MeshInstance3D)', async () =>
-      client.callToolOrThrow('add_node', {
+    await runTest('godot_scene_manager(create MeshInstance3D)', async () =>
+      client.callToolOrThrow('godot_scene_manager', {
+        action: 'create',
         projectPath,
         scenePath: 'scenes/3d/MeshScene.tscn',
         parentNodePath: 'root',
@@ -233,8 +243,13 @@ mesh = SubResource(1)
     );
 
     // Test 16: Get project info after all changes
-    await runTest('get_project_info (final)', async () =>
-      client.callToolOrThrow('get_project_info', { projectPath }),
+    await runTest(
+      'godot_project_config_manager(project_info.get final)',
+      async () =>
+        client.callToolOrThrow('godot_project_config_manager', {
+          action: 'project_info.get',
+          projectPath,
+        }),
     );
   } finally {
     await shutdown();

@@ -32,6 +32,7 @@ type WorkflowManagerDeps = {
   dispatchTool: (tool: string, args: unknown) => Promise<ToolResponse>;
   normalizeParameters: (params: unknown) => unknown;
   listTools: () => ToolDefinition[];
+  macroManager?: ToolHandler;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,10 +52,39 @@ export function createWorkflowManagerToolHandlers(
     workflow_manager: async (args: unknown): Promise<ToolResponse> => {
       const argsObj = asRecord(args, 'args');
       const action = asNonEmptyString(argsObj.action, 'action');
-      if (action !== 'validate' && action !== 'run') {
+      const trimmedAction = action.trim();
+
+      const macroActionMap: Record<string, string> = {
+        'macro.list': 'list_macros',
+        'macro.describe': 'describe_macro',
+        'macro.manifest_get': 'manifest_get',
+        'macro.plan': 'plan',
+        'macro.run': 'run',
+        'macro.resume': 'resume',
+        'macro.validate': 'validate',
+      };
+
+      const macroMapped = macroActionMap[trimmedAction] ?? null;
+      if (macroMapped) {
+        if (!deps.macroManager) {
+          return {
+            ok: false,
+            summary: 'Macro actions are unavailable (server misconfiguration)',
+            details: { action: trimmedAction },
+            logs: [],
+          };
+        }
+        const forwardedArgs: Record<string, unknown> = {
+          ...argsObj,
+          action: macroMapped,
+        };
+        return await deps.macroManager(forwardedArgs);
+      }
+
+      if (trimmedAction !== 'validate' && trimmedAction !== 'run') {
         throw new ValidationError(
           'action',
-          'Invalid field "action": expected "validate" or "run"',
+          'Invalid field "action": expected "validate", "run", or "macro.*"',
           valueType(action),
         );
       }
@@ -99,7 +129,7 @@ export function createWorkflowManagerToolHandlers(
 
       const workflow: NormalizedWorkflow = validateWorkflowJson(rawWorkflow, {
         workflowPathForErrors,
-        allowWorkflowManagerTool: action === 'validate',
+        allowWorkflowManagerTool: trimmedAction === 'validate',
       });
 
       const projectPathInput =
@@ -110,7 +140,7 @@ export function createWorkflowManagerToolHandlers(
 
       const substitutions = { $PROJECT_PATH: resolvedProjectPath ?? '' };
 
-      if (action === 'validate') {
+      if (trimmedAction === 'validate') {
         return {
           ok: true,
           summary: 'Workflow validated',

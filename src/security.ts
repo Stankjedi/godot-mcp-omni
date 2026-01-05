@@ -10,6 +10,7 @@ import path from 'path';
 
 export interface AuditEntry {
   ts: string;
+  correlationId?: string;
   tool: string;
   args: unknown;
   ok: boolean;

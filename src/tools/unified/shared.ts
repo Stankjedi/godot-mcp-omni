@@ -18,6 +18,14 @@ export function supportedActionError(
   return {
     ok: false,
     summary: `Unknown action: ${action}`,
+    error: {
+      code: 'E_SCHEMA_VALIDATION',
+      message: `Unknown action: ${action}`,
+      details: { tool: toolName, supportedActions },
+      retryable: true,
+      suggestedFix:
+        'Use a supported action or call meta_tool_manager(action="tool_help").',
+    },
     details: { tool: toolName, supportedActions },
   };
 }
@@ -32,6 +40,15 @@ export function requireEditorConnected(toolName: string): ToolResponse {
   return {
     ok: false,
     summary: `${toolName} requires an editor bridge connection`,
+    error: {
+      code: 'E_NOT_CONNECTED',
+      message: `${toolName} requires an editor bridge connection`,
+      details: {
+        suggestions: ['Call godot_workspace_manager(action="connect")'],
+      },
+      retryable: true,
+      suggestedFix: 'Call godot_workspace_manager(action="connect") and retry.',
+    },
     details: {
       suggestions: ['Call godot_workspace_manager(action="connect")'],
     },

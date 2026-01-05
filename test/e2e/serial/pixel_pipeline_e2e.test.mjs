@@ -8,7 +8,7 @@ import {
   mkdtemp,
   resolveResPath,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -45,7 +45,7 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       const plan = [
         {
@@ -107,8 +107,9 @@ test(
       ];
 
       const resp = await client.callTool(
-        'pixel_macro_run',
+        'pixel_manager',
         {
+          action: 'macro_run',
           projectPath,
           plan,
           seed: 42,
@@ -119,7 +120,7 @@ test(
 
       if (!resp.ok) {
         assert.match(resp.summary, /pixel_/u);
-        throw new Error(`pixel_macro_run failed: ${resp.summary}`);
+        throw new Error(`pixel_manager macro_run failed: ${resp.summary}`);
       }
 
       assert.equal(resp.ok, true);
@@ -187,7 +188,7 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       const plan = [
         {
@@ -213,8 +214,9 @@ test(
       ];
 
       const resp = await client.callTool(
-        'pixel_macro_run',
+        'pixel_manager',
         {
+          action: 'macro_run',
           projectPath,
           plan,
           seed: 12345,
@@ -229,7 +231,7 @@ test(
         const failedStep =
           resp.summary?.match(/pixel_\w+/u)?.[0] ?? 'unknown step';
         throw new Error(
-          `pixel_macro_run with preview/smoke failed at ${failedStep}: ${resp.summary}`,
+          `pixel_manager macro_run with preview/smoke failed at ${failedStep}: ${resp.summary}`,
         );
       }
 

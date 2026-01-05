@@ -8,7 +8,7 @@ import {
   mkdtemp,
   resolveResPath,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -28,7 +28,7 @@ test('doctor_report blocks reportRelativePath traversal (CI-safe)', async () => 
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
     const resp = await client.callTool('godot_workspace_manager', {
       action: 'doctor_report',
       projectPath,
@@ -54,7 +54,7 @@ test('doctor_report creates and truncates a markdown report (CI-safe)', async ()
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
     const resp = await client.callToolOrThrow('godot_workspace_manager', {
       action: 'doctor_report',
@@ -132,7 +132,7 @@ test(
     const client = new JsonRpcProcessClient(server);
 
     try {
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       const resp = await client.callToolOrThrow('godot_workspace_manager', {
         action: 'doctor_report',

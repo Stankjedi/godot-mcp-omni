@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 type CliMode =
   | 'server'
   | 'doctor'
+  | 'doctorReport'
   | 'listTools'
   | 'listToolsJson'
+  | 'listToolsFullJson'
+  | 'toolSchema'
   | 'printMcpConfig'
   | 'runScenarios'
   | 'runWorkflow';
@@ -19,9 +22,15 @@ type ParsedArgs = {
   mode: CliMode;
   doctorReadOnly: boolean;
   json: boolean;
+  toolName?: string;
   projectPath?: string;
+  doctorReportPath?: string;
   runWorkflowPath?: string;
   workflowProjectPath?: string;
+  scenariosNoReport: boolean;
+  scenariosOutDir?: string;
+  scenariosReportPath?: string;
+  scenariosMdReportPath?: string;
   godotPath?: string;
   strictPathValidation: boolean;
   ciSafe: boolean;
@@ -42,8 +51,14 @@ function usage() {
     '  --doctor                    Run environment/project checks and exit',
     '  --doctor-readonly           With --doctor: do not modify project files',
     '  --json                      Print doctor results as JSON (doctor-only)',
-    '  --project <path>            Project path for --doctor checks (optional)',
+    '  --doctor-report             Generate a project doctor report (Markdown) via MCP and exit',
+    '  --project <path>            Project path (optional for --doctor, required for --doctor-report)',
+    '  --doctor-report-path <path> With --doctor-report: report output path (default: .godot_mcp/reports/doctor_report.md)',
     '  --run-scenarios             Run the CI-safe scenario suite and exit',
+    '  --out-dir <dir>             With --run-scenarios: write scenario reports into <dir>',
+    '  --report <path>             With --run-scenarios: write JSON report to <path> (overrides --out-dir)',
+    '  --md-report <path>          With --run-scenarios: write Markdown report to <path> (overrides --out-dir)',
+    '  --no-report                 With --run-scenarios: run but do not write report files',
     '  --run-workflow <path>       Run a workflow JSON and exit',
     '  --workflow-project <path>   Override $PROJECT_PATH for --run-workflow',
     '  --ci-safe                   Workflow/scenarios: force GODOT_PATH=""',
@@ -53,10 +68,13 @@ function usage() {
     '  --print-mcp-config          Print MCP server config JSON and exit',
     '  --list-tools                Print available MCP tools and exit',
     '  --list-tools-json           Print available MCP tools as JSON and exit',
+    '  --list-tools-full-json      Print all MCP tool definitions as JSON and exit',
+    '  --tool-schema <toolName>    Print a single tool definition as JSON and exit',
     '',
     'Notes:',
     '  - Without options, the server starts and communicates over stdin/stdout.',
     '  - You can also configure GODOT_PATH via environment variables.',
+    '  - With --run-scenarios and no output flags, reports are written to devplan/scenario_run_report.json and devplan/scenario_run_report.md (use --no-report to disable).',
   ].join('\n');
 }
 
@@ -65,15 +83,23 @@ function parseArgs(argv: string[]): ParsedArgs {
   let showHelp = false;
   let showVersion = false;
   let doctor = false;
+  let doctorReport = false;
   let listTools = false;
   let listToolsJson = false;
+  let listToolsFullJson = false;
   let doctorReadOnly = false;
   let json = false;
   let printMcpConfig = false;
   let projectPath: string | undefined;
+  let doctorReportPath: string | undefined;
+  let toolName: string | undefined;
   let runScenarios = false;
   let runWorkflowPath: string | undefined;
   let workflowProjectPath: string | undefined;
+  let scenariosNoReport = false;
+  let scenariosOutDir: string | undefined;
+  let scenariosReportPath: string | undefined;
+  let scenariosMdReportPath: string | undefined;
   let godotPath: string | undefined;
   let strictPathValidation = false;
   let ciSafe = false;
@@ -91,6 +117,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
     if (a === '--doctor') {
       doctor = true;
+      continue;
+    }
+    if (a === '--doctor-report') {
+      doctorReport = true;
       continue;
     }
     if (a === '--doctor-readonly') {
@@ -115,6 +145,19 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
     if (a === '--list-tools-json') {
       listToolsJson = true;
+      continue;
+    }
+    if (a === '--list-tools-full-json') {
+      listToolsFullJson = true;
+      continue;
+    }
+    if (a === '--tool-schema') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --tool-schema\n\n${usage()}`);
+      }
+      toolName = value;
+      i += 1;
       continue;
     }
     if (a === '--strict-path-validation') {
@@ -161,8 +204,48 @@ function parseArgs(argv: string[]): ParsedArgs {
       i += 1;
       continue;
     }
+    if (a === '--doctor-report-path') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --doctor-report-path\n\n${usage()}`);
+      }
+      doctorReportPath = value;
+      i += 1;
+      continue;
+    }
     if (a === '--run-scenarios') {
       runScenarios = true;
+      continue;
+    }
+    if (a === '--no-report') {
+      scenariosNoReport = true;
+      continue;
+    }
+    if (a === '--out-dir') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --out-dir\n\n${usage()}`);
+      }
+      scenariosOutDir = value;
+      i += 1;
+      continue;
+    }
+    if (a === '--report') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --report\n\n${usage()}`);
+      }
+      scenariosReportPath = value;
+      i += 1;
+      continue;
+    }
+    if (a === '--md-report') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) {
+        throw new Error(`Missing value for --md-report\n\n${usage()}`);
+      }
+      scenariosMdReportPath = value;
+      i += 1;
       continue;
     }
 
@@ -170,6 +253,18 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (!showHelp && !showVersion) {
+    const hasScenarioReportFlags =
+      scenariosNoReport ||
+      Boolean(scenariosOutDir) ||
+      Boolean(scenariosReportPath) ||
+      Boolean(scenariosMdReportPath);
+
+    if (hasScenarioReportFlags && !runScenarios) {
+      throw new Error(
+        `--out-dir/--report/--md-report/--no-report are only supported with --run-scenarios\n\n${usage()}`,
+      );
+    }
+
     if (
       doctorReadOnly &&
       (!doctor ||
@@ -189,11 +284,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (listToolsJson) {
       if (
         listTools ||
+        listToolsFullJson ||
         doctor ||
+        doctorReport ||
         doctorReadOnly ||
         json ||
         printMcpConfig ||
         projectPath ||
+        doctorReportPath ||
+        toolName ||
         runScenarios ||
         runWorkflowPath ||
         workflowProjectPath ||
@@ -204,7 +303,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       ) {
         throw new Error(
           `--list-tools-json cannot be combined with ` +
-            `--list-tools/--doctor/--json/--print-mcp-config/--project/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation/--debug\n\n${usage()}`,
+            `--list-tools/--doctor/--doctor-report/--json/--print-mcp-config/--project/--doctor-report-path/--tool-schema/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation/--debug\n\n${usage()}`,
         );
       }
 
@@ -217,6 +316,102 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (listToolsFullJson) {
+      if (
+        listTools ||
+        listToolsJson ||
+        doctor ||
+        doctorReport ||
+        doctorReadOnly ||
+        json ||
+        printMcpConfig ||
+        projectPath ||
+        doctorReportPath ||
+        toolName ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe ||
+        godotPath ||
+        strictPathValidation ||
+        debug
+      ) {
+        throw new Error(
+          `--list-tools-full-json cannot be combined with ` +
+            `--list-tools/--list-tools-json/--doctor/--doctor-report/--json/--print-mcp-config/--project/--doctor-report-path/--tool-schema/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation/--debug\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'listToolsFullJson',
+        doctorReadOnly,
+        json,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (toolName) {
+      if (
+        listTools ||
+        doctor ||
+        doctorReport ||
+        doctorReadOnly ||
+        listToolsJson ||
+        listToolsFullJson ||
+        json ||
+        printMcpConfig ||
+        projectPath ||
+        doctorReportPath ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe ||
+        godotPath ||
+        strictPathValidation
+      ) {
+        throw new Error(
+          `--tool-schema cannot be combined with ` +
+            `--list-tools/--list-tools-json/--doctor/--doctor-report/--doctor-readonly/--json/--print-mcp-config/--project/--doctor-report-path/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'toolSchema',
+        doctorReadOnly,
+        json,
+        toolName,
+        projectPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -227,11 +422,15 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (listTools) {
       if (
         doctor ||
+        doctorReport ||
         doctorReadOnly ||
         listToolsJson ||
+        listToolsFullJson ||
         json ||
         printMcpConfig ||
         projectPath ||
+        doctorReportPath ||
+        toolName ||
         runScenarios ||
         runWorkflowPath ||
         workflowProjectPath ||
@@ -241,7 +440,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       ) {
         throw new Error(
           `--list-tools cannot be combined with ` +
-            `--doctor/--json/--print-mcp-config/--project/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation\n\n${usage()}`,
+            `--doctor/--doctor-report/--json/--print-mcp-config/--project/--doctor-report-path/--tool-schema/--run-scenarios/--run-workflow/--workflow-project/--ci-safe/--godot-path/--strict-path-validation\n\n${usage()}`,
         );
       }
 
@@ -254,6 +453,10 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -262,10 +465,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
 
     if (printMcpConfig) {
-      if (doctor || runScenarios || runWorkflowPath) {
+      if (doctor || doctorReport || runScenarios || runWorkflowPath) {
         throw new Error(
           `--print-mcp-config cannot be combined with ` +
-            `--doctor/--run-scenarios/--run-workflow\n\n${usage()}`,
+            `--doctor/--doctor-report/--run-scenarios/--run-workflow\n\n${usage()}`,
         );
       }
 
@@ -278,6 +481,64 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
+        godotPath,
+        strictPathValidation,
+        ciSafe,
+        debug,
+      };
+    }
+
+    if (doctorReportPath && !doctorReport) {
+      throw new Error(
+        `--doctor-report-path is only supported with --doctor-report\n\n${usage()}`,
+      );
+    }
+
+    if (doctorReport) {
+      if (
+        doctor ||
+        doctorReadOnly ||
+        json ||
+        listTools ||
+        listToolsJson ||
+        listToolsFullJson ||
+        printMcpConfig ||
+        toolName ||
+        runScenarios ||
+        runWorkflowPath ||
+        workflowProjectPath ||
+        ciSafe
+      ) {
+        throw new Error(
+          `--doctor-report cannot be combined with ` +
+            `--doctor/--doctor-readonly/--json/--print-mcp-config/--list-tools*/--tool-schema/--run-scenarios/--run-workflow/--workflow-project/--ci-safe\n\n${usage()}`,
+        );
+      }
+
+      if (!projectPath) {
+        throw new Error(
+          `Missing value for --project (required for --doctor-report)\n\n${usage()}`,
+        );
+      }
+
+      return {
+        showHelp,
+        showVersion,
+        mode: 'doctorReport',
+        doctorReadOnly,
+        json,
+        projectPath,
+        doctorReportPath,
+        runWorkflowPath,
+        workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -286,7 +547,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
 
     if (projectPath && !doctor) {
-      throw new Error(`--project is only supported with --doctor\n\n${usage()}`);
+      throw new Error(
+        `--project is only supported with --doctor or --doctor-report\n\n${usage()}`,
+      );
     }
 
     if (ciSafe && !runWorkflowPath && !runScenarios) {
@@ -321,6 +584,10 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -344,6 +611,10 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -361,6 +632,10 @@ function parseArgs(argv: string[]): ParsedArgs {
         projectPath,
         runWorkflowPath,
         workflowProjectPath,
+        scenariosNoReport,
+        scenariosOutDir,
+        scenariosReportPath,
+        scenariosMdReportPath,
         godotPath,
         strictPathValidation,
         ciSafe,
@@ -378,6 +653,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     projectPath,
     runWorkflowPath,
     workflowProjectPath,
+    scenariosNoReport,
+    scenariosOutDir,
+    scenariosReportPath,
+    scenariosMdReportPath,
     godotPath,
     strictPathValidation,
     ciSafe,
@@ -395,6 +674,18 @@ async function readPackageVersion(): Promise<string> {
     throw new Error(`Invalid package.json at ${packageJsonPath}`);
   }
   return json.version;
+}
+
+function findToolGroup(
+  toolName: string,
+  groups: Record<string, { name: string }[]>,
+): string | null {
+  for (const groupName of Object.keys(groups).sort((a, b) =>
+    a.localeCompare(b),
+  )) {
+    if (groups[groupName]?.some((t) => t.name === toolName)) return groupName;
+  }
+  return null;
 }
 
 async function main() {
@@ -440,8 +731,8 @@ async function main() {
         .sort((a, b) => a.localeCompare(b));
 
       const groups: Record<string, string[]> = {};
-      for (const groupName of Object.keys(TOOL_DEFINITION_GROUPS).sort(
-        (a, b) => a.localeCompare(b),
+      for (const groupName of Object.keys(TOOL_DEFINITION_GROUPS).sort((a, b) =>
+        a.localeCompare(b),
       )) {
         groups[groupName] = [...TOOL_DEFINITION_GROUPS[groupName]]
           .map((t) => t.name)
@@ -449,6 +740,88 @@ async function main() {
       }
 
       console.log(JSON.stringify({ total: tools.length, tools, groups }));
+      process.exit(0);
+      return;
+    }
+    case 'listToolsFullJson': {
+      const { ALL_TOOL_DEFINITIONS, TOOL_DEFINITION_GROUPS } =
+        await import('./tools/definitions/all_tools.js');
+
+      const tools = [...ALL_TOOL_DEFINITIONS]
+        .map((t) => ({
+          name: t.name,
+          description: t.description ?? null,
+          inputSchema: t.inputSchema ?? null,
+          outputSchema: t.outputSchema ?? null,
+          annotations: t.annotations ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const groups: Record<string, string[]> = {};
+      for (const groupName of Object.keys(TOOL_DEFINITION_GROUPS).sort((a, b) =>
+        a.localeCompare(b),
+      )) {
+        groups[groupName] = [...TOOL_DEFINITION_GROUPS[groupName]]
+          .map((t) => t.name)
+          .sort((a, b) => a.localeCompare(b));
+      }
+
+      console.log(JSON.stringify({ total: tools.length, tools, groups }));
+      process.exit(0);
+      return;
+    }
+    case 'toolSchema': {
+      const name =
+        typeof parsed.toolName === 'string' && parsed.toolName.trim()
+          ? parsed.toolName.trim()
+          : null;
+      if (!name) {
+        console.log(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'E_SCHEMA_VALIDATION',
+              message: 'Missing value for --tool-schema',
+            },
+          }),
+        );
+        process.exit(1);
+        return;
+      }
+
+      const { ALL_TOOL_DEFINITIONS, TOOL_DEFINITION_GROUPS } =
+        await import('./tools/definitions/all_tools.js');
+
+      const tool = ALL_TOOL_DEFINITIONS.find((t) => t.name === name) ?? null;
+      if (!tool) {
+        console.log(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'E_NOT_FOUND',
+              message: `Unknown tool: ${name}`,
+              details: { tool: name },
+            },
+          }),
+        );
+        process.exit(1);
+        return;
+      }
+
+      const group = findToolGroup(name, TOOL_DEFINITION_GROUPS);
+      console.log(
+        JSON.stringify({
+          ok: true,
+          tool: {
+            name: tool.name,
+            description: tool.description ?? null,
+            inputSchema: tool.inputSchema ?? null,
+            outputSchema: tool.outputSchema ?? null,
+            annotations: tool.annotations ?? null,
+          },
+          group,
+        }),
+      );
       process.exit(0);
       return;
     }
@@ -496,6 +869,12 @@ async function main() {
         const result = await runScenariosCli({
           ciSafe: parsed.ciSafe,
           godotPath: parsed.godotPath,
+          report: {
+            noReport: parsed.scenariosNoReport,
+            outDir: parsed.scenariosOutDir,
+            reportPath: parsed.scenariosReportPath,
+            mdReportPath: parsed.scenariosMdReportPath,
+          },
         });
         process.exit(result.ok ? 0 : 1);
         return;
@@ -526,6 +905,48 @@ async function main() {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[WORKFLOW] ${message}`);
+        process.exit(1);
+        return;
+      }
+    }
+    case 'doctorReport': {
+      if (!parsed.projectPath) {
+        console.log(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'E_SCHEMA_VALIDATION',
+              message:
+                'Missing value for --project (required for --doctor-report)',
+            },
+          }),
+        );
+        process.exit(1);
+        return;
+      }
+
+      try {
+        const { runDoctorReportCli } =
+          await import('./doctor_report/cli_runner.js');
+        const result = await runDoctorReportCli({
+          projectPath: parsed.projectPath,
+          reportRelativePath: parsed.doctorReportPath,
+          godotPath: parsed.godotPath,
+        });
+        console.log(JSON.stringify(result.output, null, 2));
+        process.exit(result.exitCode);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'E_DOCTOR_REPORT_CLI',
+              message,
+            },
+          }),
+        );
         process.exit(1);
         return;
       }

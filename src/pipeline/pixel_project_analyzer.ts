@@ -346,12 +346,12 @@ export async function analyzePixelProject(options: {
 
   if (tilesetCandidates.length === 0) {
     suggestions.push(
-      'No existing TileSet resources found; generate one via pixel_tilemap_generate.',
+      'No existing TileSet resources found; generate one via pixel_manager(action="tilemap_generate").',
     );
   }
   if (worldSceneCandidates.length === 0) {
     suggestions.push(
-      'No existing world scenes detected; generate one via pixel_world_generate.',
+      'No existing world scenes detected; generate one via pixel_manager(action="world_generate").',
     );
   }
   if (files.length >= scanLimit) {

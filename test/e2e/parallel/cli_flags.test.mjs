@@ -127,15 +127,110 @@ test('CLI --list-tools-json prints JSON-only output and exits 0', () => {
 
   assert.equal(typeof json.total, 'number');
   assert.ok(Array.isArray(json.tools));
-  assert.ok(Array.isArray(json.groups?.server));
-  assert.ok(json.tools.includes('server_info'));
+  assert.ok(Array.isArray(json.groups?.meta));
+  assert.ok(json.tools.includes('meta_tool_manager'));
+  assert.ok(!json.tools.includes('server_info'));
+  assert.ok(!Object.prototype.hasOwnProperty.call(json.groups ?? {}, 'server'));
 
-  assert.deepEqual([...json.tools].sort((a, b) => a.localeCompare(b)), json.tools);
+  assert.deepEqual(
+    [...json.tools].sort((a, b) => a.localeCompare(b)),
+    json.tools,
+  );
   for (const groupName of Object.keys(json.groups ?? {})) {
     const tools = json.groups[groupName];
     if (!Array.isArray(tools)) continue;
-    assert.deepEqual([...tools].sort((a, b) => a.localeCompare(b)), tools);
+    assert.deepEqual(
+      [...tools].sort((a, b) => a.localeCompare(b)),
+      tools,
+    );
   }
+});
+
+test('CLI --list-tools-full-json prints JSON-only output and exits 0', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--list-tools-full-json'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, GODOT_PATH: '' },
+    },
+  );
+
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr.trim(), '');
+
+  const json = JSON.parse(res.stdout);
+  assert.ok(json && typeof json === 'object' && !Array.isArray(json));
+
+  assert.equal(typeof json.total, 'number');
+  assert.ok(Array.isArray(json.tools));
+  assert.ok(Array.isArray(json.groups?.meta));
+
+  const meta = json.tools.find((t) => t?.name === 'meta_tool_manager') ?? null;
+  assert.ok(meta && typeof meta === 'object', 'meta_tool_manager must exist');
+  assert.ok(meta.inputSchema, 'inputSchema must be present');
+
+  for (const t of json.tools) {
+    assert.equal(typeof t?.name, 'string');
+  }
+
+  const toolNames = json.tools.map((t) => t.name);
+  assert.deepEqual(
+    [...toolNames].sort((a, b) => a.localeCompare(b)),
+    toolNames,
+  );
+
+  for (const groupName of Object.keys(json.groups ?? {})) {
+    const tools = json.groups[groupName];
+    if (!Array.isArray(tools)) continue;
+    assert.deepEqual(
+      [...tools].sort((a, b) => a.localeCompare(b)),
+      tools,
+    );
+  }
+});
+
+test('CLI --tool-schema prints JSON-only output and exits 0', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--tool-schema', 'meta_tool_manager'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, GODOT_PATH: '' },
+    },
+  );
+
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr.trim(), '');
+
+  const json = JSON.parse(res.stdout);
+  assert.ok(json && typeof json === 'object' && !Array.isArray(json));
+
+  assert.equal(json.ok, true);
+  assert.equal(json.tool?.name, 'meta_tool_manager');
+  assert.equal(json.group, 'meta');
+  assert.ok(json.tool?.inputSchema, 'inputSchema must be present');
+});
+
+test('CLI --tool-schema prints JSON-only error output and exits non-zero when tool is missing', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--tool-schema', 'does_not_exist'],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, GODOT_PATH: '' },
+    },
+  );
+
+  assert.equal(res.status, 1);
+  assert.equal(res.stderr.trim(), '');
+
+  const json = JSON.parse(res.stdout);
+  assert.ok(json && typeof json === 'object' && !Array.isArray(json));
+
+  assert.equal(json.ok, false);
+  assert.equal(json.error?.code, 'E_NOT_FOUND');
+  assert.match(json.error?.message ?? '', /Unknown tool:/u);
 });
 
 test('CLI --list-tools rejects incompatible flag combinations', () => {
@@ -150,6 +245,47 @@ test('CLI --list-tools rejects incompatible flag combinations', () => {
 
   assert.equal(res.status, 1);
   assert.match(res.stderr, /--list-tools cannot be combined/u);
+});
+
+test('CLI --doctor-report prints JSON-only output and writes a report (CI-safe)', async () => {
+  const projectPath = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'godot-mcp-omni-cli-doctor-report-'),
+  );
+
+  try {
+    const projectGodotPath = path.join(projectPath, 'project.godot');
+    const projectGodot = [
+      '; Engine configuration file.',
+      "; It's best edited using the editor, not directly.",
+      'config_version=5',
+      '',
+      '[application]',
+      'config/name="DoctorReportCliProject"',
+      '',
+    ].join('\n');
+    await fs.writeFile(projectGodotPath, projectGodot, 'utf8');
+
+    const res = spawnSync(
+      process.execPath,
+      [buildIndexPath, '--doctor-report', '--project', projectPath],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, GODOT_PATH: '' },
+      },
+    );
+
+    assert.equal(res.status, 1, 'Expected environment-related doctor errors');
+    assert.equal(res.stderr.trim(), '');
+
+    const json = JSON.parse(res.stdout.trim());
+    assert.equal(typeof json.reportPath, 'string');
+    assert.ok(json.reportPath.startsWith(projectPath));
+
+    const markdown = await fs.readFile(json.reportPath, 'utf8');
+    assert.match(markdown, /Generated by godot-mcp-omni doctor_report\./u);
+  } finally {
+    await fs.rm(projectPath, { recursive: true, force: true });
+  }
 });
 
 test('CLI --doctor-readonly does not modify project files', async () => {

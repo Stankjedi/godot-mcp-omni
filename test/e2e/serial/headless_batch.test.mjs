@@ -6,7 +6,7 @@ import { JsonRpcProcessClient } from '../../../build/utils/jsonrpc_process_clien
 import {
   mkdtemp,
   startServer,
-  waitForServerStartup,
+  waitForServerReady,
   writeMinimalProject,
 } from '../helpers.mjs';
 
@@ -15,7 +15,7 @@ test('godot_headless_batch rejects invalid steps type (CI-safe)', async () => {
   const client = new JsonRpcProcessClient(server);
 
   try {
-    await waitForServerStartup();
+    await waitForServerReady(client);
 
     const res = await client.callTool('godot_headless_batch', {
       projectPath: '/tmp/does-not-matter',
@@ -44,7 +44,7 @@ test(
 
     try {
       writeMinimalProject(projectPath, 'godot-mcp-omni-batch-test');
-      await waitForServerStartup();
+      await waitForServerReady(client);
 
       const res = await client.callToolOrThrow('godot_headless_batch', {
         projectPath,

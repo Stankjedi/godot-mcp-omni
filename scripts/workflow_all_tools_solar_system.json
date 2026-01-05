@@ -1,7 +1,6 @@
 {
   "$schema": "./workflow.schema.json",
   "schemaVersion": 1,
-  "projectPath": "../test_project",
   "steps": [
     {
       "id": "ALL-001",
@@ -29,9 +28,10 @@
     },
     {
       "id": "ALL-004",
-      "title": "get_project_info (solar system project)",
-      "tool": "get_project_info",
+      "title": "godot_project_config_manager project_info.get (solar system project)",
+      "tool": "godot_project_config_manager",
       "args": {
+        "action": "project_info.get",
         "projectPath": "$PROJECT_PATH"
       },
       "expectOk": true
@@ -363,11 +363,12 @@
     },
     {
       "id": "ALL-013",
-      "title": "run_project + get_debug_output + stop_project",
-      "tool": "run_project",
+      "title": "godot_workspace_manager run (headless)",
+      "tool": "godot_workspace_manager",
       "args": {
+        "action": "run",
         "projectPath": "$PROJECT_PATH",
-        "headless": true,
+        "mode": "headless",
         "scene": "res://scenes/solar_system/SolarSystem3D.tscn"
       },
       "expectOk": true
@@ -381,9 +382,9 @@
     },
     {
       "id": "ALL-015",
-      "title": "stop_project",
-      "tool": "stop_project",
-      "args": {},
+      "title": "godot_workspace_manager stop (headless)",
+      "tool": "godot_workspace_manager",
+      "args": { "action": "stop", "mode": "headless" },
       "expectOk": true
     },
     {
@@ -399,9 +400,10 @@
     },
     {
       "id": "ALL-017",
-      "title": "add_node (Sprite2D)",
-      "tool": "add_node",
+      "title": "godot_scene_manager create (Sprite2D)",
+      "tool": "godot_scene_manager",
       "args": {
+        "action": "create",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
         "parentNodePath": "root",
@@ -412,15 +414,16 @@
     },
     {
       "id": "ALL-018",
-      "title": "add_node (Timer)",
-      "tool": "add_node",
+      "title": "godot_scene_manager create (Timer)",
+      "tool": "godot_scene_manager",
       "args": {
+        "action": "create",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
         "parentNodePath": "root",
         "nodeType": "Timer",
         "nodeName": "Timer",
-        "properties": { "wait_time": 0.25, "autostart": true }
+        "props": { "wait_time": 0.25, "autostart": true }
       },
       "expectOk": true
     },
@@ -470,9 +473,10 @@
     },
     {
       "id": "ALL-022",
-      "title": "load_sprite (PNG) via headless op module",
-      "tool": "load_sprite",
+      "title": "godot_asset_manager load_texture (SpriteTest)",
+      "tool": "godot_asset_manager",
       "args": {
+        "action": "load_texture",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "scenes/tool_coverage/SpriteTest.tscn",
         "nodePath": "root/Sprite",
@@ -483,8 +487,9 @@
     {
       "id": "ALL-023",
       "title": "save_scene (SpriteTest)",
-      "tool": "save_scene",
+      "tool": "godot_workspace_manager",
       "args": {
+        "action": "save_scene",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "scenes/tool_coverage/SpriteTest.tscn"
       },
@@ -492,9 +497,10 @@
     },
     {
       "id": "ALL-024",
-      "title": "get_uid (PNG)",
-      "tool": "get_uid",
+      "title": "godot_asset_manager uid_convert (PNG)",
+      "tool": "godot_asset_manager",
       "args": {
+        "action": "uid_convert",
         "projectPath": "$PROJECT_PATH",
         "filePath": "assets/test.png"
       },
@@ -564,16 +570,17 @@
     },
     {
       "id": "ALL-029",
-      "title": "pixel_project_analyze",
-      "tool": "pixel_project_analyze",
-      "args": { "projectPath": "$PROJECT_PATH" },
+      "title": "pixel_manager project_analyze",
+      "tool": "pixel_manager",
+      "args": { "action": "project_analyze", "projectPath": "$PROJECT_PATH" },
       "expectOk": true
     },
     {
       "id": "ALL-030",
-      "title": "pixel_goal_to_spec (builtin plan)",
-      "tool": "pixel_goal_to_spec",
+      "title": "pixel_manager goal_to_spec (builtin plan)",
+      "tool": "pixel_manager",
       "args": {
+        "action": "goal_to_spec",
         "projectPath": "$PROJECT_PATH",
         "goal": "tilemap + world (size 16x16), place trees density 0.2",
         "allowExternalTools": false
@@ -600,23 +607,28 @@
     },
     {
       "id": "ALL-033",
-      "title": "pixel_smoke_test (run main scene headless)",
-      "tool": "pixel_smoke_test",
-      "args": { "projectPath": "$PROJECT_PATH", "waitMs": 800 },
+      "title": "pixel_manager smoke_test (run main scene headless)",
+      "tool": "pixel_manager",
+      "args": {
+        "action": "smoke_test",
+        "projectPath": "$PROJECT_PATH",
+        "waitMs": 800
+      },
       "expectOk": true
     },
     {
       "id": "ALL-034",
-      "title": "pixel_manifest_get (expected missing)",
-      "tool": "pixel_manifest_get",
-      "args": { "projectPath": "$PROJECT_PATH" },
-      "expectOk": true
+      "title": "pixel_manager manifest_get (expected missing)",
+      "tool": "pixel_manager",
+      "args": { "action": "manifest_get", "projectPath": "$PROJECT_PATH" },
+      "expectOk": false
     },
     {
       "id": "ALL-035",
       "title": "pixel_export_preview (expected fail: invalid spec type)",
-      "tool": "pixel_export_preview",
+      "tool": "pixel_manager",
       "args": {
+        "action": "export_preview",
         "projectPath": "$PROJECT_PATH",
         "spec": "INVALID_SPEC_SHOULD_BE_OBJECT"
       },
@@ -625,8 +637,9 @@
     {
       "id": "ALL-036",
       "title": "pixel_layer_ensure (expected fail)",
-      "tool": "pixel_layer_ensure",
+      "tool": "pixel_manager",
       "args": {
+        "action": "layer_ensure",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "res://nope.tscn",
         "layerName": "Terrain"
@@ -636,8 +649,9 @@
     {
       "id": "ALL-037",
       "title": "pixel_tilemap_generate (expected fail: minimal spec)",
-      "tool": "pixel_tilemap_generate",
+      "tool": "pixel_manager",
       "args": {
+        "action": "tilemap_generate",
         "projectPath": "$PROJECT_PATH",
         "spec": { "name": "TestTilemap" },
         "imageGenMode": "manual_drop"
@@ -647,15 +661,20 @@
     {
       "id": "ALL-038",
       "title": "pixel_world_generate (expected fail: missing tileset)",
-      "tool": "pixel_world_generate",
-      "args": { "projectPath": "$PROJECT_PATH", "spec": {} },
+      "tool": "pixel_manager",
+      "args": {
+        "action": "world_generate",
+        "projectPath": "$PROJECT_PATH",
+        "spec": {}
+      },
       "expectOk": false
     },
     {
       "id": "ALL-039",
       "title": "pixel_object_generate (expected fail: minimal spec)",
-      "tool": "pixel_object_generate",
+      "tool": "pixel_manager",
       "args": {
+        "action": "object_generate",
         "projectPath": "$PROJECT_PATH",
         "spec": { "name": "TestObject" },
         "imageGenMode": "manual_drop"
@@ -665,8 +684,9 @@
     {
       "id": "ALL-040",
       "title": "pixel_object_place (expected fail)",
-      "tool": "pixel_object_place",
+      "tool": "pixel_manager",
       "args": {
+        "action": "object_place",
         "projectPath": "$PROJECT_PATH",
         "scenePath": "res://nope.tscn",
         "spec": { "objects": [] }
@@ -676,8 +696,9 @@
     {
       "id": "ALL-041",
       "title": "pixel_macro_run (dryRun)",
-      "tool": "pixel_macro_run",
+      "tool": "pixel_manager",
       "args": {
+        "action": "macro_run",
         "projectPath": "$PROJECT_PATH",
         "goal": "tilemap + world + objects",
         "dryRun": true
@@ -697,17 +718,17 @@
     },
     {
       "id": "ALL-043",
-      "title": "macro_manager list_macros",
-      "tool": "macro_manager",
-      "args": { "action": "list_macros" },
+      "title": "workflow_manager macro.list",
+      "tool": "workflow_manager",
+      "args": { "action": "macro.list" },
       "expectOk": true
     },
     {
       "id": "ALL-044",
-      "title": "macro_manager describe_macro (input_system_scaffold)",
-      "tool": "macro_manager",
+      "title": "workflow_manager macro.describe (input_system_scaffold)",
+      "tool": "workflow_manager",
       "args": {
-        "action": "describe_macro",
+        "action": "macro.describe",
         "projectPath": "$PROJECT_PATH",
         "macroId": "input_system_scaffold"
       },
@@ -735,27 +756,31 @@
     },
     {
       "id": "ALL-046",
-      "title": "aseprite_doctor (expected fail: aseprite not installed)",
-      "tool": "aseprite_doctor",
-      "args": { "timeoutMs": 1000 },
+      "title": "aseprite_manager doctor (expected fail: aseprite not installed)",
+      "tool": "aseprite_manager",
+      "args": { "action": "doctor", "options": { "timeoutMs": 1000 } },
       "expectOk": false
     },
     {
       "id": "ALL-047",
-      "title": "aseprite_export_spritesheet (expected fail: missing input)",
-      "tool": "aseprite_export_spritesheet",
+      "title": "aseprite_manager export_sheet (expected fail: missing input)",
+      "tool": "aseprite_manager",
       "args": {
+        "action": "export_sheet",
         "projectPath": "$PROJECT_PATH",
-        "inputPath": "assets/missing.aseprite",
-        "outputPngPath": "assets/generated/missing.png"
+        "inputFile": "assets/missing.aseprite"
       },
       "expectOk": false
     },
     {
       "id": "ALL-048",
       "title": "Editor bridge connect (expected fail: not running)",
-      "tool": "godot_connect_editor",
-      "args": { "projectPath": "$PROJECT_PATH", "timeoutMs": 500 },
+      "tool": "godot_workspace_manager",
+      "args": {
+        "action": "connect",
+        "projectPath": "$PROJECT_PATH",
+        "timeoutMs": 500
+      },
       "expectOk": false
     },
     {
@@ -787,37 +812,43 @@
     },
     {
       "id": "ALL-052",
-      "title": "godot_select_node (expected fail: not connected)",
-      "tool": "godot_select_node",
-      "args": { "nodePath": "root", "timeoutMs": 500 },
+      "title": "godot_inspector_manager select (expected fail: not connected)",
+      "tool": "godot_inspector_manager",
+      "args": { "action": "select", "nodePath": "root", "timeoutMs": 500 },
       "expectOk": false
     },
     {
       "id": "ALL-053",
-      "title": "godot_scene_tree_query (expected fail: not connected)",
-      "tool": "godot_scene_tree_query",
-      "args": { "className": "Node", "timeoutMs": 500 },
+      "title": "godot_inspector_manager query (expected fail: not connected)",
+      "tool": "godot_inspector_manager",
+      "args": { "action": "query", "className": "Node", "timeoutMs": 500 },
       "expectOk": false
     },
     {
       "id": "ALL-054",
-      "title": "godot_duplicate_node (expected fail: not connected)",
-      "tool": "godot_duplicate_node",
-      "args": { "nodePath": "root", "timeoutMs": 500 },
+      "title": "godot_scene_manager duplicate (expected fail: not connected)",
+      "tool": "godot_scene_manager",
+      "args": { "action": "duplicate", "nodePath": "root", "timeoutMs": 500 },
       "expectOk": false
     },
     {
       "id": "ALL-055",
-      "title": "godot_reparent_node (expected fail: not connected)",
-      "tool": "godot_reparent_node",
-      "args": { "nodePath": "root", "newParentPath": "root", "timeoutMs": 500 },
+      "title": "godot_scene_manager reparent (expected fail: not connected)",
+      "tool": "godot_scene_manager",
+      "args": {
+        "action": "reparent",
+        "nodePath": "root",
+        "newParentPath": "root",
+        "timeoutMs": 500
+      },
       "expectOk": false
     },
     {
       "id": "ALL-056",
-      "title": "godot_add_scene_instance (expected fail: not connected)",
-      "tool": "godot_add_scene_instance",
+      "title": "godot_scene_manager instance (expected fail: not connected)",
+      "tool": "godot_scene_manager",
       "args": {
+        "action": "instance",
         "scenePath": "res://scenes/solar_system/SolarSystem3D.tscn",
         "timeoutMs": 500
       },
@@ -825,9 +856,10 @@
     },
     {
       "id": "ALL-057",
-      "title": "godot_disconnect_signal (expected fail: not connected)",
-      "tool": "godot_disconnect_signal",
+      "title": "godot_inspector_manager disconnect_signal (expected fail: not connected)",
+      "tool": "godot_inspector_manager",
       "args": {
+        "action": "disconnect_signal",
         "fromNodePath": "root/Timer",
         "signal": "timeout",
         "toNodePath": "root",
@@ -858,8 +890,11 @@
     {
       "id": "ALL-060",
       "title": "launch_editor (expected fail: invalid project path, do not spawn GUI)",
-      "tool": "launch_editor",
-      "args": { "projectPath": "mcp_invalid_project_for_editor" },
+      "tool": "godot_workspace_manager",
+      "args": {
+        "action": "launch",
+        "projectPath": "mcp_invalid_project_for_editor"
+      },
       "expectOk": false
     }
   ]
