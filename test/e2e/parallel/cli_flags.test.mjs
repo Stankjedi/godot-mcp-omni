@@ -247,6 +247,45 @@ test('CLI --list-tools rejects incompatible flag combinations', () => {
   assert.match(res.stderr, /--list-tools cannot be combined/u);
 });
 
+test('CLI rejects --scenarios-json when --run-scenarios is missing', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--scenarios-json'],
+    { encoding: 'utf8' },
+  );
+
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /only supported with --run-scenarios/u);
+  assert.match(res.stderr, /Usage:/u);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('CLI rejects --scenario when the value is missing', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--run-scenarios', '--ci-safe', '--scenario'],
+    { encoding: 'utf8' },
+  );
+
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /Missing value for --scenario/u);
+  assert.match(res.stderr, /Usage:/u);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('CLI --list-scenarios prints available scenario ids and exits 0', () => {
+  const res = spawnSync(
+    process.execPath,
+    [buildIndexPath, '--list-scenarios'],
+    { encoding: 'utf8' },
+  );
+
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr.trim(), '');
+  assert.match(res.stdout, /Total scenarios:/u);
+  assert.match(res.stdout, /\bSCN-001\b/u);
+});
+
 test('CLI --doctor-report prints JSON-only output and writes a report (CI-safe)', async () => {
   const projectPath = await fs.mkdtemp(
     path.join(os.tmpdir(), 'godot-mcp-omni-cli-doctor-report-'),

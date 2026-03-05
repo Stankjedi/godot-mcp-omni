@@ -5,6 +5,14 @@ import process from 'node:process';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  buildSpawnEnv,
+  drainChildStderr,
+  formatError,
+  resolveServerEntryPath,
+  shutdownChildProcess,
+  waitForServerReady,
+} from '../cli/runner_utils.js';
 import { JsonRpcProcessClient } from '../utils/jsonrpc_process_client.js';
 import { deepSubstitute, isRecord } from '../utils/object_shape.js';
 import { DEFAULT_CI_SAFE_SCENARIOS } from './default_scenarios.js';
@@ -19,6 +27,8 @@ type ScenarioReportOutputOptions = {
 type RunScenariosCliOptions = {
   ciSafe: boolean;
   godotPath?: string;
+  jsonStdout: boolean;
+  scenarioIds: string[];
   report: ScenarioReportOutputOptions;
 };
 
@@ -50,21 +60,6 @@ type ScenarioRunReport = {
   scenarios: ScenarioRunReportScenario[];
   tools: { count: number; names: string[] };
 };
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveServerEntryPath(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  return path.resolve(__dirname, '..', 'index.js');
-}
 
 function resolveDefaultReportPaths(): { jsonPath: string; mdPath: string } {
   const __filename = fileURLToPath(import.meta.url);
@@ -201,31 +196,6 @@ function renderMarkdownReport(report: ScenarioRunReport): string {
   return `${lines.join('\n')}\n`;
 }
 
-async function shutdownChildProcess(
-  child: ReturnType<typeof spawn>,
-): Promise<void> {
-  if (child.exitCode !== null) return;
-
-  try {
-    child.stdin?.end();
-  } catch {
-    // Ignore.
-  }
-
-  const exitPromise = new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-  });
-
-  child.kill();
-  await Promise.race([exitPromise, sleep(2000)]);
-
-  if (child.exitCode !== null) return;
-  if (process.platform !== 'win32') {
-    child.kill('SIGKILL');
-    await Promise.race([exitPromise, sleep(2000)]);
-  }
-}
-
 async function writeMinimalProject(projectPath: string): Promise<void> {
   await fs.mkdir(path.join(projectPath, 'scenes'), { recursive: true });
 
@@ -249,8 +219,88 @@ async function writeMinimalProject(projectPath: string): Promise<void> {
 export async function runScenariosCli(
   options: RunScenariosCliOptions,
 ): Promise<{ ok: boolean; failures: number }> {
-  const serverEntry = resolveServerEntryPath();
-  const scenarios = DEFAULT_CI_SAFE_SCENARIOS;
+  const rawScenarioIds = options.scenarioIds ?? [];
+  const requestedScenarioIds = rawScenarioIds.map((id) => id.trim());
+  const emptyScenarioIds = requestedScenarioIds.filter((id) => id.length === 0);
+
+  if (rawScenarioIds.length > 0 && emptyScenarioIds.length > 0) {
+    const message = '--scenario <id> must not be empty';
+    if (options.jsonStdout) {
+      console.log(
+        JSON.stringify({
+          ok: false,
+          error: { code: 'E_SCENARIO_FILTER', message },
+        }),
+      );
+    } else {
+      console.error(message);
+    }
+    return { ok: false, failures: 1 };
+  }
+
+  const normalizedScenarioIds = requestedScenarioIds.filter(
+    (id) => id.length > 0,
+  );
+
+  const serverEntry = resolveServerEntryPath(import.meta.url);
+  const allScenarios = DEFAULT_CI_SAFE_SCENARIOS;
+  const availableScenarioIds = new Set(allScenarios.map((s) => s.id));
+
+  if (normalizedScenarioIds.length > 0) {
+    const unknownIds = [
+      ...new Set(
+        normalizedScenarioIds.filter((id) => !availableScenarioIds.has(id)),
+      ),
+    ];
+    if (unknownIds.length > 0) {
+      const message =
+        `Unknown --scenario id(s): ${unknownIds.join(', ')}. ` +
+        `Known IDs: ${[...availableScenarioIds].sort((a, b) => a.localeCompare(b)).join(', ')}`;
+
+      if (options.jsonStdout) {
+        console.log(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: 'E_SCENARIO_FILTER',
+              message,
+              details: { unknownIds },
+            },
+          }),
+        );
+      } else {
+        console.error(message);
+      }
+
+      return { ok: false, failures: 1 };
+    }
+  }
+
+  const scenarioIdFilter =
+    normalizedScenarioIds.length > 0 ? new Set(normalizedScenarioIds) : null;
+  const scenarios = scenarioIdFilter
+    ? allScenarios.filter((s) => scenarioIdFilter.has(s.id))
+    : allScenarios;
+
+  if (scenarioIdFilter && scenarios.length === 0) {
+    const message = 'No scenarios selected. Check your --scenario filters.';
+    if (options.jsonStdout) {
+      console.log(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: 'E_SCENARIO_FILTER_EMPTY',
+            message,
+            details: { scenarioIds: requestedScenarioIds },
+          },
+        }),
+      );
+    } else {
+      console.error(message);
+    }
+    return { ok: false, failures: 1 };
+  }
+
   const outputPaths = resolveOutputPaths(options.report);
 
   const tmpRoot = await fs.mkdtemp(
@@ -267,14 +317,10 @@ export async function runScenariosCli(
   const child = spawn(process.execPath, [serverEntry], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    env: {
-      ...process.env,
-      ...(options.ciSafe
-        ? { GODOT_PATH: '' }
-        : { GODOT_PATH: effectiveGodotPath }),
-      ALLOW_DANGEROUS_OPS: 'false',
-    },
+    env: buildSpawnEnv({ ciSafe: options.ciSafe, effectiveGodotPath }),
   });
+
+  drainChildStderr(child);
 
   let failures = 0;
   const client = new JsonRpcProcessClient(child);
@@ -300,7 +346,7 @@ export async function runScenariosCli(
   let toolNames: string[] = [];
 
   try {
-    await sleep(250);
+    await waitForServerReady(client);
 
     {
       const startedAt = Date.now();
@@ -343,7 +389,9 @@ export async function runScenariosCli(
               durationMs: toolsListDurationMs,
               reason: toolsListError,
             });
-            console.error(`${label}: FAIL - ${toolsListError}`);
+            if (!options.jsonStdout) {
+              console.error(`${label}: FAIL - ${toolsListError}`);
+            }
             continue;
           }
 
@@ -357,7 +405,9 @@ export async function runScenariosCli(
             status: 'pass',
             durationMs: toolsListDurationMs,
           });
-          console.log(`${label}: ok`);
+          if (!options.jsonStdout) {
+            console.log(`${label}: ok`);
+          }
           continue;
         }
 
@@ -387,11 +437,15 @@ export async function runScenariosCli(
           durationMs,
           summary: resp.summary,
         });
-        console.log(`${label}: ok (${resp.summary ?? 'no summary'})`);
+        if (!options.jsonStdout) {
+          console.log(`${label}: ok (${resp.summary ?? 'no summary'})`);
+        }
       } catch (error) {
         const durationMs = Date.now() - startedAt;
         failures += 1;
-        console.error(`${label}: FAIL - ${formatError(error)}`);
+        if (!options.jsonStdout) {
+          console.error(`${label}: FAIL - ${formatError(error)}`);
+        }
         report.totals.ran += 1;
         report.totals.failed += 1;
         report.scenarios.push({
@@ -426,11 +480,15 @@ export async function runScenariosCli(
     await fs.rm(tmpRoot, { recursive: true, force: true });
   }
 
-  console.log('');
-  if (failures === 0) {
-    console.log('SCENARIOS: OK');
+  if (options.jsonStdout) {
+    console.log(JSON.stringify(report));
   } else {
-    console.log(`SCENARIOS: FAIL (${failures} failures)`);
+    console.log('');
+    if (failures === 0) {
+      console.log('SCENARIOS: OK');
+    } else {
+      console.log(`SCENARIOS: FAIL (${failures} failures)`);
+    }
   }
 
   return { ok: failures === 0, failures };

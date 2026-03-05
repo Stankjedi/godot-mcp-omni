@@ -2,8 +2,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
+import {
+  buildSpawnEnv,
+  drainChildStderr,
+  formatError,
+  resolveServerEntryPath,
+  shutdownChildProcess,
+  waitForServerReady,
+} from '../cli/runner_utils.js';
 import { JsonRpcProcessClient } from '../utils/jsonrpc_process_client.js';
 import { isRecord } from '../utils/object_shape.js';
 import { deepSubstitute, validateWorkflowJson } from './workflow_validation.js';
@@ -13,53 +20,15 @@ type RunWorkflowCliOptions = {
   projectPath?: string;
   godotPath?: string;
   ciSafe: boolean;
+  jsonStdout?: boolean;
 };
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveServerEntryPath(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  return path.resolve(__dirname, '..', 'index.js');
-}
-
-async function shutdownChildProcess(
-  child: ReturnType<typeof spawn>,
-): Promise<void> {
-  if (child.exitCode !== null) return;
-
-  try {
-    child.stdin?.end();
-  } catch {
-    // Ignore.
-  }
-
-  const exitPromise = new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-  });
-
-  child.kill();
-  await Promise.race([exitPromise, sleep(2000)]);
-
-  if (child.exitCode !== null) return;
-  if (process.platform !== 'win32') {
-    child.kill('SIGKILL');
-    await Promise.race([exitPromise, sleep(2000)]);
-  }
-}
 
 export async function runWorkflowCli(
   options: RunWorkflowCliOptions,
 ): Promise<{ ok: boolean; failures: number }> {
+  const jsonStdout = options.jsonStdout === true;
   const workflowPath = path.resolve(process.cwd(), options.workflowPath);
-  const serverEntry = resolveServerEntryPath();
+  const serverEntry = resolveServerEntryPath(import.meta.url);
 
   let raw: string;
   try {
@@ -105,20 +74,16 @@ export async function runWorkflowCli(
   const child = spawn(process.execPath, [serverEntry], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    env: {
-      ...process.env,
-      ...(options.ciSafe
-        ? { GODOT_PATH: '' }
-        : { GODOT_PATH: effectiveGodotPath }),
-      ALLOW_DANGEROUS_OPS: 'false',
-    },
+    env: buildSpawnEnv({ ciSafe: options.ciSafe, effectiveGodotPath }),
   });
+
+  drainChildStderr(child);
 
   let failures = 0;
   const client = new JsonRpcProcessClient(child);
 
   try {
-    await sleep(250);
+    await waitForServerReady(client);
 
     for (let index = 0; index < workflow.steps.length; index += 1) {
       const step = workflow.steps[index];
@@ -135,7 +100,7 @@ export async function runWorkflowCli(
             throw new Error(`tools/list error: ${JSON.stringify(resp.error)}`);
           }
 
-          console.log(`${label}: ok`);
+          if (!jsonStdout) console.log(`${label}: ok`);
           continue;
         }
 
@@ -153,10 +118,14 @@ export async function runWorkflowCli(
           );
         }
 
-        console.log(`${label}: ok (${resp.summary ?? 'no summary'})`);
+        if (!jsonStdout) {
+          console.log(`${label}: ok (${resp.summary ?? 'no summary'})`);
+        }
       } catch (error) {
         failures += 1;
-        console.error(`${label}: FAIL - ${formatError(error)}`);
+        if (!jsonStdout) {
+          console.error(`${label}: FAIL - ${formatError(error)}`);
+        }
       }
     }
   } finally {
@@ -164,10 +133,22 @@ export async function runWorkflowCli(
     await shutdownChildProcess(child);
   }
 
-  console.log('');
-  console.log('DONE');
-  console.log(`Workflow: ${workflowPath}`);
-  if (resolvedProjectPath) console.log(`Project: ${resolvedProjectPath}`);
+  if (jsonStdout) {
+    console.log(
+      JSON.stringify({
+        ok: failures === 0,
+        failures,
+        stepsTotal: workflow.steps.length,
+        workflowPath,
+        projectPath: resolvedProjectPath ?? null,
+      }),
+    );
+  } else {
+    console.log('');
+    console.log('DONE');
+    console.log(`Workflow: ${workflowPath}`);
+    if (resolvedProjectPath) console.log(`Project: ${resolvedProjectPath}`);
+  }
 
   return { ok: failures === 0, failures };
 }

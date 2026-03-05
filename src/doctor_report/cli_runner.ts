@@ -1,8 +1,15 @@
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
+import {
+  buildSpawnEnv,
+  drainChildStderr,
+  formatError,
+  resolveServerEntryPath,
+  shutdownChildProcess,
+  waitForServerReady,
+} from '../cli/runner_utils.js';
 import type { ToolResponse } from '../tools/types.js';
 import { JsonRpcProcessClient } from '../utils/jsonrpc_process_client.js';
 
@@ -13,46 +20,6 @@ type RunDoctorReportCliOptions = {
 };
 
 type SeverityCounts = { error: number; warning: number; info: number };
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveServerEntryPath(): string {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  return path.resolve(__dirname, '..', 'index.js');
-}
-
-async function shutdownChildProcess(
-  child: ReturnType<typeof spawn>,
-): Promise<void> {
-  if (child.exitCode !== null) return;
-
-  try {
-    child.stdin?.end();
-  } catch {
-    // Ignore.
-  }
-
-  const exitPromise = new Promise<void>((resolve) => {
-    child.once('exit', () => resolve());
-  });
-
-  child.kill();
-  await Promise.race([exitPromise, sleep(2000)]);
-
-  if (child.exitCode !== null) return;
-  if (process.platform !== 'win32') {
-    child.kill('SIGKILL');
-    await Promise.race([exitPromise, sleep(2000)]);
-  }
-}
 
 function validateReportRelativePath(reportRelativePath: string):
   | {
@@ -142,36 +109,6 @@ function extractSeverityCounts(toolResp: ToolResponse): {
   return { counts: { error, warning, info }, total: issueCountTotal };
 }
 
-async function waitForServerReady(
-  client: JsonRpcProcessClient,
-  { timeoutMs = 10000, intervalMs = 50 } = {},
-): Promise<void> {
-  const startedAt = Date.now();
-  let lastError: unknown = null;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
-      const resp = await client.send(
-        'tools/list',
-        {},
-        Math.min(1000, remainingMs),
-      );
-      if ('error' in resp) {
-        throw new Error(`tools/list error: ${JSON.stringify(resp.error)}`);
-      }
-      return;
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(intervalMs);
-  }
-
-  throw new Error(
-    `Timed out waiting for server ready (${timeoutMs}ms): ${formatError(lastError)}`,
-  );
-}
-
 export async function runDoctorReportCli(
   options: RunDoctorReportCliOptions,
 ): Promise<{
@@ -203,7 +140,7 @@ export async function runDoctorReportCli(
     };
   }
 
-  const serverEntry = resolveServerEntryPath();
+  const serverEntry = resolveServerEntryPath(import.meta.url);
   const effectiveGodotPath = (options.godotPath ?? process.env.GODOT_PATH ?? '')
     .trim()
     .trim();
@@ -211,16 +148,11 @@ export async function runDoctorReportCli(
   const child = spawn(process.execPath, [serverEntry], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    env: {
-      ...process.env,
-      GODOT_PATH: effectiveGodotPath,
-      ALLOW_DANGEROUS_OPS: 'false',
-      ALLOW_EXTERNAL_TOOLS: 'false',
-    },
+    env: buildSpawnEnv({ ciSafe: false, effectiveGodotPath }),
   });
 
   // Avoid backpressure if the child writes logs to stderr (we never forward them).
-  child.stderr.on('data', () => {});
+  drainChildStderr(child);
 
   const client = new JsonRpcProcessClient(child);
 

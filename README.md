@@ -145,6 +145,8 @@ npm run build
     - `--project <path>`: (필수) 리포트를 생성할 Godot 프로젝트 루트
     - (선택) `--doctor-report-path <path>`: 출력 경로 (기본값: `.godot_mcp/reports/doctor_report.md`, project-relative만 허용)
   - `--run-scenarios`: CI-safe 시나리오 스모크 테스트 실행 후 종료 (exit code: 0/1)
+    - (선택) `--scenarios-json`: 최종 리포트를 stdout에 JSON-only로 출력(진행 로그 억제)
+    - (선택) `--scenario <id>`: 특정 시나리오만 실행(반복 가능)
   - `--godot-path <path>`: `GODOT_PATH` 대신 명시적으로 Godot 경로 지정(우선 적용)
   - `--strict-path-validation`: Godot 경로 검증을 엄격 모드로 실행
   - `--debug`: 디버그 로그 활성화(`DEBUG=true`)
@@ -154,6 +156,17 @@ npm run build
   - `--list-tools-full-json`: 모든 MCP 도구 정의를 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0)
   - `--tool-schema <toolName>`: 단일 MCP 도구 정의를 JSON으로 출력하고 종료합니다(서버 시작 없음, exit code: 0/1)
   - (선택) 전역 설치/링크를 사용하면 `godot-mcp-omni` 바이너리로도 실행할 수 있습니다.
+
+##### CLI mode contract
+
+| Mode                          | stdout                                       | stderr             | Files                                                                       | Exit code | Safety defaults (spawned server)                                                             |
+| ----------------------------- | -------------------------------------------- | ------------------ | --------------------------------------------------------------------------- | --------: | -------------------------------------------------------------------------------------------- |
+| `--doctor`                    | 사람이 읽는 텍스트                           | (성공 시) 비어있음 | 없음                                                                        |       0/1 | N/A (서버를 spawn하지 않음)                                                                  |
+| `--doctor --json`             | JSON-only                                    | (성공 시) 비어있음 | 없음                                                                        |       0/1 | N/A (서버를 spawn하지 않음)                                                                  |
+| `--doctor-report`             | JSON-only                                    | (성공 시) 비어있음 | 프로젝트에 리포트 파일 생성 (기본: `.godot_mcp/reports/doctor_report.md`)   |       0/1 | `ALLOW_DANGEROUS_OPS=false`, `ALLOW_EXTERNAL_TOOLS=false`                                    |
+| `--run-scenarios`             | 진행 로그 + 최종 요약 (`SCENARIOS: OK/FAIL`) | 실패 시 에러 로그  | (기본) `devplan/scenario_run_report.json`, `devplan/scenario_run_report.md` |       0/1 | `ALLOW_DANGEROUS_OPS=false`, `ALLOW_EXTERNAL_TOOLS=false` (+ `--ci-safe`: `GODOT_PATH=\"\"`) |
+| `--run-scenarios --no-report` | 진행 로그 + 최종 요약 (`SCENARIOS: OK/FAIL`) | 실패 시 에러 로그  | 없음                                                                        |       0/1 | `ALLOW_DANGEROUS_OPS=false`, `ALLOW_EXTERNAL_TOOLS=false` (+ `--ci-safe`: `GODOT_PATH=\"\"`) |
+| `--run-workflow <path>`       | 단계별 로그 + 최종 요약 (`DONE`)             | 실패 시 에러 로그  | 없음(워크플로우가 호출한 도구가 파일을 만들 수는 있음)                      |       0/1 | `ALLOW_DANGEROUS_OPS=false`, `ALLOW_EXTERNAL_TOOLS=false` (+ `--ci-safe`: `GODOT_PATH=\"\"`) |
 
 예시:
 
@@ -178,6 +191,12 @@ CI-safe 시나리오 실행 예시:
 ```bash
 node build/index.js --run-scenarios --ci-safe
 # stdout에 "SCENARIOS: OK"가 포함되면 성공입니다.
+```
+
+CI-safe 시나리오(JSON-only) + 필터 실행 예시:
+
+```bash
+node build/index.js --run-scenarios --ci-safe --scenarios-json --scenario SCN-001
 ```
 
 도구 목록 출력 예시:
